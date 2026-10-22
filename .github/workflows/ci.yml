@@ -14,9 +14,9 @@ concurrency:
 
 jobs:
   workflows:
-    uses: Narx-Space-Prod/platform-ci/.github/workflows/workflows.yml@a40f96defaf04c3570034fb9ab4ceef25ef7065a
+    uses: Narx-Space-Prod/platform-ci/.github/workflows/workflows.yml@e94e5e70af3edaf124cd7fbe86ec76f36160fdbf
   helm:
-    uses: Narx-Space-Prod/platform-ci/.github/workflows/helm.yml@a40f96defaf04c3570034fb9ab4ceef25ef7065a
+    uses: Narx-Space-Prod/platform-ci/.github/workflows/helm.yml@e94e5e70af3edaf124cd7fbe86ec76f36160fdbf
   preview:
     name: Local preview configuration
     runs-on: ubuntu-24.04
