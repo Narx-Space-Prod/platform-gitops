@@ -1,0 +1,136 @@
+{{- if and .Values.release.ready .Values.localData.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: elasticmq-config
+  annotations: {argocd.argoproj.io/sync-wave: "-2"}
+data:
+  elasticmq.conf: |
+    include classpath("application.conf")
+    node-address { protocol = http, host = elasticmq, port = 9324 }
+    rest-stats.enabled = false
+    aws { region = us-east-1, accountId = "000000000000" }
+    messages-storage { enabled = true, uri = "jdbc:h2:/data/elasticmq" }
+    queues {
+      order-paid {
+        defaultVisibilityTimeout = 60 seconds
+        receiveMessageWait = 10 seconds
+        deadLettersQueue { name = "order-paid-dlq", maxReceiveCount = 5 }
+      }
+      order-paid-dlq { }
+    }
+{{- range $name, $port := dict "commerce-postgres" 5432 "commerce-redis" 6379 "elasticmq" 9324 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  annotations: {argocd.argoproj.io/sync-wave: "-1"}
+spec:
+  selector: {app.kubernetes.io/name: {{ $name }}}
+  ports: [{port: {{ $port }}, targetPort: {{ $port }}}]
+{{- end }}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: commerce-postgres
+  annotations: {argocd.argoproj.io/sync-wave: "-1"}
+spec:
+  serviceName: commerce-postgres
+  replicas: 1
+  selector: {matchLabels: {app.kubernetes.io/name: commerce-postgres}}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: commerce-postgres}
+    spec:
+      automountServiceAccountToken: false
+      securityContext: {runAsNonRoot: true, runAsUser: 999, runAsGroup: 999, fsGroup: 999, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: postgres
+          image: {{ .Values.localData.postgresImage | quote }}
+          args: [postgres, -c, shared_buffers=32MB, -c, max_connections=32]
+          env:
+            - {name: POSTGRES_DB, value: commerce}
+            - {name: POSTGRES_USER, valueFrom: {secretKeyRef: {name: commerce-runtime, key: DATABASE_USER}}}
+            - {name: POSTGRES_PASSWORD, valueFrom: {secretKeyRef: {name: commerce-runtime, key: DATABASE_PASSWORD}}}
+            - {name: PGDATA, value: /var/lib/postgresql/data/pgdata}
+          ports: [{containerPort: 5432}]
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+          resources: {requests: {cpu: 25m, memory: 96Mi}, limits: {cpu: 500m, memory: 192Mi}}
+          readinessProbe: {exec: {command: [pg_isready, -U, commerce, -d, commerce]}, periodSeconds: 5}
+          livenessProbe: {exec: {command: [pg_isready, -U, commerce, -d, commerce]}, initialDelaySeconds: 30, periodSeconds: 10}
+          volumeMounts:
+            - {name: database, mountPath: /var/lib/postgresql/data}
+            - {name: runtime, mountPath: /var/run/postgresql}
+            - {name: temporary, mountPath: /tmp}
+      volumes: [{name: runtime, emptyDir: {}}, {name: temporary, emptyDir: {}}]
+  volumeClaimTemplates:
+    - metadata: {name: database}
+      spec:
+        storageClassName: {{ .Values.localData.storageClass | quote }}
+        accessModes: [ReadWriteOnce]
+        resources: {requests: {storage: 1Gi}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: commerce-redis
+  annotations: {argocd.argoproj.io/sync-wave: "-1"}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app.kubernetes.io/name: commerce-redis}}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: commerce-redis}
+    spec:
+      automountServiceAccountToken: false
+      securityContext: {runAsNonRoot: true, runAsUser: 10001, runAsGroup: 10001, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: redis
+          image: {{ .Values.localData.redisImage | quote }}
+          workingDir: /tmp
+          args: [redis-server, --save, "", --appendonly, "no", --maxmemory, 32mb, --maxmemory-policy, noeviction]
+          ports: [{containerPort: 6379}]
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+          resources: {requests: {cpu: 25m, memory: 32Mi}, limits: {cpu: 250m, memory: 64Mi}}
+          readinessProbe: {exec: {command: [redis-cli, ping]}, periodSeconds: 5}
+          livenessProbe: {exec: {command: [redis-cli, ping]}, periodSeconds: 10}
+          volumeMounts: [{name: temporary, mountPath: /tmp}]
+      volumes: [{name: temporary, emptyDir: {}}]
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: elasticmq
+  annotations: {argocd.argoproj.io/sync-wave: "-1"}
+spec:
+  serviceName: elasticmq
+  replicas: 1
+  selector: {matchLabels: {app.kubernetes.io/name: elasticmq}}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: elasticmq}
+    spec:
+      automountServiceAccountToken: false
+      securityContext: {runAsNonRoot: true, runAsUser: 10001, runAsGroup: 10001, fsGroup: 10001, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: queue
+          image: {{ .Values.localData.queueImage | quote }}
+          ports: [{containerPort: 9324}]
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+          resources: {requests: {cpu: 25m, memory: 64Mi}, limits: {cpu: 250m, memory: 128Mi}}
+          readinessProbe: {httpGet: {path: /health, port: 9324}, periodSeconds: 5}
+          livenessProbe: {httpGet: {path: /health, port: 9324}, periodSeconds: 10}
+          volumeMounts:
+            - {name: config, mountPath: /opt/elasticmq.conf, subPath: elasticmq.conf, readOnly: true}
+            - {name: queue, mountPath: /data}
+            - {name: temporary, mountPath: /tmp}
+      volumes: [{name: config, configMap: {name: elasticmq-config}}, {name: temporary, emptyDir: {}}]
+  volumeClaimTemplates:
+    - metadata: {name: queue}
+      spec:
+        storageClassName: {{ .Values.localData.storageClass | quote }}
+        accessModes: [ReadWriteOnce]
+        resources: {requests: {storage: 1Gi}}
+{{- end }}

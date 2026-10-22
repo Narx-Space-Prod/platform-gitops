@@ -1,0 +1,20 @@
+global:
+  imagePullSecrets: []
+podIdentity: {enabled: true}
+# Populate reviewed VPC/subnet CIDRs for RDS and the chosen Redis endpoint.
+externalDataCIDRs: []
+environment: production
+# Set the real HTTPS origin and AWS region in a reviewed infrastructure activation PR.
+publicOrigin: ""
+cookieSecure: true
+awsRegion: ""
+localData:
+  enabled: false
+frontend: &capacity
+  replicaCount: 2
+  podDisruptionBudget: {enabled: true, minAvailable: 1}
+catalogue: *capacity
+cart: *capacity
+orders: *capacity
+publisher: *capacity
+worker: *capacity

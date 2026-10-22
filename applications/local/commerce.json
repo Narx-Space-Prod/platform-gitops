@@ -1,0 +1,184 @@
+{
+  "apiVersion": "v1",
+  "kind": "List",
+  "items": [
+    {
+      "apiVersion": "argoproj.io/v1alpha1",
+      "kind": "AppProject",
+      "metadata": {
+        "name": "narx-commerce-local",
+        "namespace": "argocd"
+      },
+      "spec": {
+        "description": "Narx commerce local delivery; no cluster-wide resource permissions",
+        "sourceRepos": [
+          "https://github.com/Narx-Space-Prod/platform-gitops.git"
+        ],
+        "destinations": [
+          {
+            "server": "https://kubernetes.default.svc",
+            "namespace": "commerce-dev"
+          },
+          {
+            "server": "https://kubernetes.default.svc",
+            "namespace": "commerce-qa"
+          }
+        ],
+        "clusterResourceWhitelist": [],
+        "namespaceResourceWhitelist": [
+          {
+            "group": "",
+            "kind": "ConfigMap"
+          },
+          {
+            "group": "",
+            "kind": "Service"
+          },
+          {
+            "group": "",
+            "kind": "ServiceAccount"
+          },
+          {
+            "group": "",
+            "kind": "PersistentVolumeClaim"
+          },
+          {
+            "group": "apps",
+            "kind": "Deployment"
+          },
+          {
+            "group": "apps",
+            "kind": "StatefulSet"
+          },
+          {
+            "group": "batch",
+            "kind": "Job"
+          },
+          {
+            "group": "policy",
+            "kind": "PodDisruptionBudget"
+          },
+          {
+            "group": "autoscaling",
+            "kind": "HorizontalPodAutoscaler"
+          },
+          {
+            "group": "networking.k8s.io",
+            "kind": "NetworkPolicy"
+          }
+        ],
+        "orphanedResources": {
+          "warn": true
+        }
+      }
+    },
+    {
+      "apiVersion": "argoproj.io/v1alpha1",
+      "kind": "Application",
+      "metadata": {
+        "name": "narx-commerce-dev",
+        "namespace": "argocd",
+        "labels": {
+          "delivery.narx.space/environment": "dev"
+        },
+        "annotations": {
+          "notifications.argoproj.io/subscribe.narx-pending.github": "",
+          "notifications.argoproj.io/subscribe.narx-healthy.github": "",
+          "notifications.argoproj.io/subscribe.narx-failed.github": ""
+        }
+      },
+      "spec": {
+        "project": "narx-commerce-local",
+        "source": {
+          "repoURL": "https://github.com/Narx-Space-Prod/platform-gitops.git",
+          "targetRevision": "main",
+          "path": "charts/commerce",
+          "helm": {
+            "releaseName": "commerce",
+            "valueFiles": [
+              "../../environments/dev/runtime.yaml",
+              "../../environments/dev/release.json"
+            ]
+          }
+        },
+        "destination": {
+          "server": "https://kubernetes.default.svc",
+          "namespace": "commerce-dev"
+        },
+        "syncPolicy": {
+          "automated": {
+            "prune": true,
+            "selfHeal": true,
+            "allowEmpty": false
+          },
+          "syncOptions": [
+            "ServerSideApply=true",
+            "PruneLast=true"
+          ],
+          "retry": {
+            "limit": 3,
+            "backoff": {
+              "duration": "10s",
+              "factor": 2,
+              "maxDuration": "1m"
+            }
+          }
+        }
+      }
+    },
+    {
+      "apiVersion": "argoproj.io/v1alpha1",
+      "kind": "Application",
+      "metadata": {
+        "name": "narx-commerce-qa",
+        "namespace": "argocd",
+        "labels": {
+          "delivery.narx.space/environment": "qa"
+        },
+        "annotations": {
+          "notifications.argoproj.io/subscribe.narx-pending.github": "",
+          "notifications.argoproj.io/subscribe.narx-healthy.github": "",
+          "notifications.argoproj.io/subscribe.narx-failed.github": ""
+        }
+      },
+      "spec": {
+        "project": "narx-commerce-local",
+        "source": {
+          "repoURL": "https://github.com/Narx-Space-Prod/platform-gitops.git",
+          "targetRevision": "main",
+          "path": "charts/commerce",
+          "helm": {
+            "releaseName": "commerce",
+            "valueFiles": [
+              "../../environments/qa/runtime.yaml",
+              "../../environments/qa/release.json"
+            ]
+          }
+        },
+        "destination": {
+          "server": "https://kubernetes.default.svc",
+          "namespace": "commerce-qa"
+        },
+        "syncPolicy": {
+          "automated": {
+            "prune": true,
+            "selfHeal": true,
+            "allowEmpty": false
+          },
+          "syncOptions": [
+            "ServerSideApply=true",
+            "PruneLast=true"
+          ],
+          "retry": {
+            "limit": 3,
+            "backoff": {
+              "duration": "10s",
+              "factor": 2,
+              "maxDuration": "1m"
+            }
+          }
+        }
+      }
+    }
+  ]
+}

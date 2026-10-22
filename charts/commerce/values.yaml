@@ -1,0 +1,86 @@
+global:
+  imagePullSecrets: [{name: ecr-pull}]
+externalDataCIDRs: []
+podIdentity: {enabled: false}
+environment: dev
+publicOrigin: http://localhost:18080
+cookieSecure: false
+awsRegion: us-east-1
+localData:
+  enabled: true
+  storageClass: standard
+  postgresImage: postgres:16@sha256:1a6ab3f5345eb6dbe04a1349529caabdb0ab09293a09590fad07b2246bfa4b54
+  redisImage: redis:7.4-alpine@sha256:892022f9f18c26c92c30e15194d132f90044af87b94a491a75429bbc3982eab1
+  queueImage: softwaremill/elasticmq-native:1.7.1@sha256:e4580ab9ad1bd5cd37b4ba04911bc5ccc8cd2d9ab4de56ece65acee71c24e05c
+release:
+  ready: false
+  id: ""
+  components: {}
+  previous: null
+frontend:
+  enabled: false
+  fullnameOverride: commerce-frontend
+  env:
+    - {name: CATALOGUE_URL, value: 'http://commerce-catalogue'}
+    - {name: CART_URL, value: 'http://commerce-cart'}
+    - {name: ORDERS_URL, value: 'http://commerce-orders'}
+    - {name: PUBLIC_ORIGIN, valueFrom: {configMapKeyRef: {name: commerce-settings, key: PUBLIC_ORIGIN}}}
+    - {name: COOKIE_SECURE, valueFrom: {configMapKeyRef: {name: commerce-settings, key: COOKIE_SECURE}}}
+    - {name: SESSION_SECRET, valueFrom: {secretKeyRef: {name: commerce-runtime, key: SESSION_SECRET}}}
+  resources: {requests: {cpu: 25m, memory: 64Mi}, limits: {cpu: 250m, memory: 128Mi}}
+catalogue:
+  enabled: false
+  fullnameOverride: commerce-catalogue
+  containerPort: 8081
+  env: [{name: COMMERCE_URL, value: 'http://commerce-orders'}]
+  resources: {requests: {cpu: 25m, memory: 32Mi}, limits: {cpu: 250m, memory: 64Mi}}
+cart:
+  enabled: false
+  fullnameOverride: commerce-cart
+  containerPort: 8082
+  env: [{name: REDIS_URL, valueFrom: {secretKeyRef: {name: commerce-runtime, key: REDIS_URL}}}]
+  resources: {requests: {cpu: 25m, memory: 64Mi}, limits: {cpu: 250m, memory: 128Mi}}
+orders:
+  enabled: false
+  fullnameOverride: commerce-orders
+  containerPort: 8083
+  env:
+    - {name: DATABASE_URL, valueFrom: {secretKeyRef: {name: commerce-runtime, key: DATABASE_URL}}}
+    - {name: DATABASE_USER, valueFrom: {secretKeyRef: {name: commerce-runtime, key: DATABASE_USER}}}
+    - {name: DATABASE_PASSWORD, valueFrom: {secretKeyRef: {name: commerce-runtime, key: DATABASE_PASSWORD}}}
+    - {name: CART_URL, value: 'http://commerce-cart'}
+    - {name: SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE, value: '4'}
+    - {name: RAZORPAY_KEY_ID, valueFrom: {secretKeyRef: {name: commerce-payments, key: RAZORPAY_KEY_ID, optional: true}}}
+    - {name: RAZORPAY_KEY_SECRET, valueFrom: {secretKeyRef: {name: commerce-payments, key: RAZORPAY_KEY_SECRET, optional: true}}}
+    - {name: RAZORPAY_WEBHOOK_SECRET, valueFrom: {secretKeyRef: {name: commerce-payments, key: RAZORPAY_WEBHOOK_SECRET, optional: true}}}
+  resources: {requests: {cpu: 50m, memory: 256Mi}, limits: {cpu: 500m, memory: 448Mi}}
+publisher:
+  enabled: false
+  fullnameOverride: commerce-publisher
+  containerPort: 8083
+  env: &deliveryEnv
+    - {name: DATABASE_URL, valueFrom: {secretKeyRef: {name: commerce-runtime, key: DATABASE_URL}}}
+    - {name: DATABASE_USER, valueFrom: {secretKeyRef: {name: commerce-runtime, key: DATABASE_USER}}}
+    - {name: DATABASE_PASSWORD, valueFrom: {secretKeyRef: {name: commerce-runtime, key: DATABASE_PASSWORD}}}
+    - {name: SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE, value: '2'}
+    - {name: DELIVERY_ROLE, value: publisher}
+    - {name: DELIVERY_QUEUE_URL, valueFrom: {secretKeyRef: {name: commerce-runtime, key: DELIVERY_QUEUE_URL}}}
+    - {name: DELIVERY_LOCAL, valueFrom: {configMapKeyRef: {name: commerce-settings, key: DELIVERY_LOCAL}}}
+    - {name: DELIVERY_ENDPOINT, valueFrom: {configMapKeyRef: {name: commerce-settings, key: DELIVERY_ENDPOINT}}}
+    - {name: AWS_REGION, valueFrom: {configMapKeyRef: {name: commerce-settings, key: AWS_REGION}}}
+  resources: &workerResources {requests: {cpu: 50m, memory: 192Mi}, limits: {cpu: 500m, memory: 320Mi}}
+worker:
+  enabled: false
+  fullnameOverride: commerce-worker
+  containerPort: 8083
+  resources: *workerResources
+  env:
+    - {name: DATABASE_URL, valueFrom: {secretKeyRef: {name: commerce-runtime, key: DATABASE_URL}}}
+    - {name: DATABASE_USER, valueFrom: {secretKeyRef: {name: commerce-runtime, key: DATABASE_USER}}}
+    - {name: DATABASE_PASSWORD, valueFrom: {secretKeyRef: {name: commerce-runtime, key: DATABASE_PASSWORD}}}
+    - {name: SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE, value: '2'}
+    - {name: DELIVERY_ROLE, value: worker}
+    - {name: DELIVERY_QUEUE_URL, valueFrom: {secretKeyRef: {name: commerce-runtime, key: DELIVERY_QUEUE_URL}}}
+    - {name: DELIVERY_LOCAL, valueFrom: {configMapKeyRef: {name: commerce-settings, key: DELIVERY_LOCAL}}}
+    - {name: DELIVERY_ENDPOINT, valueFrom: {configMapKeyRef: {name: commerce-settings, key: DELIVERY_ENDPOINT}}}
+    - {name: AWS_REGION, valueFrom: {configMapKeyRef: {name: commerce-settings, key: AWS_REGION}}}

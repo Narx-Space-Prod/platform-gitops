@@ -1,0 +1,6 @@
+environment: dev
+publicOrigin: http://localhost:18080
+cookieSecure: false
+localData:
+  enabled: true
+  storageClass: standard
