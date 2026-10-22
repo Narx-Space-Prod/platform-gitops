@@ -42,6 +42,8 @@ jobs:
           allowed = {'environments/'+e+'/release.json' for e in ['dev','qa','production']}
           candidates = []
           for entry in files:
+              if entry.get('previous_filename') in allowed and entry['filename'] != entry['previous_filename']:
+                  raise SystemExit('Release state cannot be renamed')
               if entry['filename'] not in allowed:
                   continue
               if entry['status'] == 'removed':
