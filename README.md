@@ -14,7 +14,8 @@ local payment simulator, persistent ElasticMQ queue/DLQ, outbox publisher and re
 worker. The background roles reuse the orders image; there are no extra image builds.
 It is not the Kubernetes dev/QA deployment or an AWS environment.
 All changes after repository initialization go through feature branches and pull requests.
-These private repositories use GitHub Free; review enforcement requires the planned Team upgrade.
+These repositories are public on GitHub Free. Protected `main` requires a CODEOWNER
+approval, passing CI checks and resolved conversations; administrators follow the same rules.
 
 ## Chart contract
 
