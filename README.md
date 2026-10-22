@@ -10,7 +10,9 @@ Project guide: [DOC.md](https://github.com/Narx-Space-Prod/platform-infrastructu
 
 The shared chart and capacity profiles are merged. `local/compose.yaml` now provides
 a developer preview of the migrated application with PostgreSQL, Redis and an explicit
-local payment simulator. It is not the Kubernetes dev/QA deployment or an AWS environment.
+local payment simulator, persistent ElasticMQ queue/DLQ, outbox publisher and receipt
+worker. The background roles reuse the orders image; there are no extra image builds.
+It is not the Kubernetes dev/QA deployment or an AWS environment.
 All changes after repository initialization go through feature branches and pull requests.
 These private repositories use GitHub Free; review enforcement requires the planned Team upgrade.
 
@@ -38,7 +40,7 @@ docker compose --env-file local/.env -f local/compose.yaml up --no-build -d --wa
 
 Open `http://localhost:18080`. Backend ports and database ports are not published.
 All payments in this preview use the local simulator; no money is charged. PostgreSQL
-data persists in a named volume. Carts and simulator state are disposable.
+and queue data persist in named volumes. Carts and simulator state are disposable.
 
 The opt-in test creates throwaway accounts and performs a local SQL role promotion:
 
@@ -49,3 +51,9 @@ NARX_LOCAL_TEST=1 NARX_COMPOSE_PROJECT=narx-commerce python3 -m unittest discove
 It checks authentication, admin restrictions, INR prices, cart/stock, idempotent checkout,
 payment verification, customer order isolation, product concurrency checks, order status,
 refund retries and sales reporting. Run it only against this disposable preview.
+
+For the separate queue failure exercise, follow DOC.md. Set `NARX_QUEUE_TEST=1` only
+on a fresh disposable project: it stops/restarts that project's queue/worker and
+injects database failures to verify transaction rollback, retries, duplicates and DLQ
+recovery. Regular customer-flow tests do not stop services or inject these constraints.
+Real AWS queue policies, IAM, monitoring alarms and production redrive remain pending.
