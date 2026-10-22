@@ -1,0 +1,21 @@
+dependencies:
+- name: commerce-service
+  repository: file://../commerce-service
+  version: 0.1.0
+- name: commerce-service
+  repository: file://../commerce-service
+  version: 0.1.0
+- name: commerce-service
+  repository: file://../commerce-service
+  version: 0.1.0
+- name: commerce-service
+  repository: file://../commerce-service
+  version: 0.1.0
+- name: commerce-service
+  repository: file://../commerce-service
+  version: 0.1.0
+- name: commerce-service
+  repository: file://../commerce-service
+  version: 0.1.0
+digest: sha256:4bdbf61c1a21afe666869c7160ac8d9023fcf3dce44d0071a06a2ec98161ed30
+generated: "2026-10-22T14:14:27.787782164+05:30"

@@ -4,10 +4,10 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ .Release.Name }}
+  name: {{ include "commerce-service.fullname" . }}
   labels:
     app.kubernetes.io/name: {{ .Chart.Name }}
-    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/instance: {{ include "commerce-service.fullname" . }}
 spec:
   {{- if not .Values.autoscaling.enabled }}
   replicas: {{ .Values.replicaCount }}
@@ -22,18 +22,18 @@ spec:
   selector:
     matchLabels:
       app.kubernetes.io/name: {{ .Chart.Name }}
-      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/instance: {{ include "commerce-service.fullname" . }}
   template:
     metadata:
       labels:
         app.kubernetes.io/name: {{ .Chart.Name }}
-        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/instance: {{ include "commerce-service.fullname" . }}
       {{- with .Values.podAnnotations }}
       annotations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
     spec:
-      serviceAccountName: {{ .Release.Name }}
+      serviceAccountName: {{ include "commerce-service.fullname" . }}
       automountServiceAccountToken: false
       terminationGracePeriodSeconds: 30
       securityContext:
@@ -43,6 +43,14 @@ spec:
         fsGroup: 10001
         seccompProfile:
           type: RuntimeDefault
+      {{- $pullSecrets := .Values.imagePullSecrets }}
+      {{- if hasKey .Values.global "imagePullSecrets" }}
+      {{- $pullSecrets = .Values.global.imagePullSecrets }}
+      {{- end }}
+      {{- with $pullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: app
           image: {{ printf "%s@%s" .Values.image.repository .Values.image.digest | quote }}
@@ -63,7 +71,7 @@ spec:
             httpGet:
               path: {{ .Values.probes.livenessPath }}
               port: http
-            failureThreshold: 30
+            failureThreshold: 60
             periodSeconds: 2
           readinessProbe:
             httpGet:

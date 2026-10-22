@@ -1,0 +1,75 @@
+name: Release operations
+
+on:
+  repository_dispatch:
+    types: [release-published]
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+    inputs:
+      operation:
+        type: choice
+        options: [reconcile, rollback]
+        default: reconcile
+      environment:
+        type: choice
+        options: [dev, qa, production]
+        default: qa
+
+permissions:
+  contents: read
+
+# Reconciliation reads all release records afresh. Coalescing notifications cannot lose a component.
+concurrency:
+  group: release-operations
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Verify release and propose GitOps change
+    if: vars.DELIVERY_ENABLED == 'true' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: registry-verification
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_VERIFICATION_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          allowed-account-ids: ${{ vars.AWS_ACCOUNT_ID }}
+          role-duration-seconds: 900
+      - uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd # v2.1.7
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: v3.1.4
+      - name: Mint short-lived GitOps PR token
+        id: app
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          app-id: ${{ vars.NARX_RELEASE_APP_ID }}
+          private-key: ${{ secrets.NARX_RELEASE_APP_PRIVATE_KEY }}
+          owner: Narx-Space-Prod
+          repositories: platform-gitops
+          permission-contents: write
+          permission-pull-requests: write
+      - name: Configure authenticated Git transport without storing a credential in the checkout
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+        run: gh auth setup-git
+      - name: Reconcile signed releases, promote verified bundles or propose rollback
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          NARX_DEPLOYMENT_BOT_LOGIN: ${{ vars.NARX_DEPLOYMENT_BOT_LOGIN }}
+          OPERATION: ${{ inputs.operation || 'reconcile' }}
+          TARGET_ENVIRONMENT: ${{ inputs.environment || 'qa' }}
+        run: python3 scripts/delivery.py "$OPERATION" "$TARGET_ENVIRONMENT"

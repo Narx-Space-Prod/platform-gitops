@@ -1,0 +1,26 @@
+{
+  "cart": {
+    "enabled": false
+  },
+  "catalogue": {
+    "enabled": false
+  },
+  "frontend": {
+    "enabled": false
+  },
+  "orders": {
+    "enabled": false
+  },
+  "publisher": {
+    "enabled": false
+  },
+  "release": {
+    "components": {},
+    "id": "",
+    "previous": null,
+    "ready": false
+  },
+  "worker": {
+    "enabled": false
+  }
+}

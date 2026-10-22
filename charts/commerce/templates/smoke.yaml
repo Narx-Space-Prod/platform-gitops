@@ -1,0 +1,63 @@
+{{- if .Values.release.ready }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: commerce-smoke
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+data:
+  smoke.mjs: |
+    import assert from 'node:assert/strict';
+    const deadline = Date.now() + 150000;
+    async function get(url) {
+      const response = await fetch(url, {signal: AbortSignal.timeout(5000)});
+      assert.equal(response.status, 200, `Unexpected status at ${url}`);
+      return response;
+    }
+    while (true) {
+      try {
+        for (const service of ['frontend','catalogue','cart','orders','publisher','worker']) {
+          await get(`http://commerce-${service}/health/ready`);
+        }
+        const products = await (await get('http://commerce-catalogue/products')).json();
+        assert.ok(Array.isArray(products) && products.length > 0);
+        assert.ok(products.every(p => p.currency === 'INR' && p.price > 0));
+        await get('http://commerce-frontend/');
+        console.log('release_smoke_passed release={{ .Values.release.id }}');
+        break;
+      } catch (failure) {
+        if (Date.now() >= deadline) throw failure;
+        await new Promise(resolve => setTimeout(resolve, 3000));
+      }
+    }
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: commerce-smoke-{{ .Values.release.id | trunc 12 }}
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 180
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: commerce-smoke}
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext: {runAsNonRoot: true, runAsUser: 10001, runAsGroup: 10001, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: verify
+          image: {{ printf "%s@%s" .Values.frontend.image.repository .Values.frontend.image.digest | quote }}
+          command: [node, /verify/smoke.mjs]
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+          resources: {requests: {cpu: 25m, memory: 64Mi}, limits: {cpu: 250m, memory: 128Mi}}
+          volumeMounts: [{name: script, mountPath: /verify, readOnly: true}]
+      volumes: [{name: script, configMap: {name: commerce-smoke}}]
+{{- end }}

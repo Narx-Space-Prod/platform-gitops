@@ -1,0 +1,6 @@
+environment: qa
+publicOrigin: http://localhost:18081
+cookieSecure: false
+localData:
+  enabled: true
+  storageClass: standard

@@ -1,0 +1,22 @@
+{{- if .Values.release.ready }}
+{{- if and (eq .Values.environment "production") .Values.localData.enabled }}
+{{- fail "production must use managed data services; localData is not permitted" }}
+{{- end }}
+{{- if eq .Values.environment "production" }}
+{{- if or (not (hasPrefix "https://" .Values.publicOrigin)) (empty .Values.awsRegion) (not .Values.cookieSecure) (empty .Values.externalDataCIDRs) }}
+{{- fail "production requires HTTPS origin, AWS region, secure cookies and private data CIDRs" }}
+{{- end }}
+{{- end }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: commerce-settings
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+data:
+  PUBLIC_ORIGIN: {{ required "publicOrigin is required" .Values.publicOrigin | quote }}
+  COOKIE_SECURE: {{ .Values.cookieSecure | quote }}
+  AWS_REGION: {{ .Values.awsRegion | quote }}
+  DELIVERY_LOCAL: {{ .Values.localData.enabled | quote }}
+  DELIVERY_ENDPOINT: {{ ternary "http://elasticmq:9324" "" .Values.localData.enabled | quote }}
+{{- end }}
