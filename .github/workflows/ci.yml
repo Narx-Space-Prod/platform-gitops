@@ -1,0 +1,19 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  workflows:
+    uses: Narx-Space-Prod/platform-ci/.github/workflows/workflows.yml@84e65dff43130bca4e00be19326c86eb0067c864
+  helm:
+    uses: Narx-Space-Prod/platform-ci/.github/workflows/helm.yml@84e65dff43130bca4e00be19326c86eb0067c864

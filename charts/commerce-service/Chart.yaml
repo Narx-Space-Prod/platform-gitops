@@ -1,0 +1,5 @@
+apiVersion: v2
+name: commerce-service
+description: Shared deployment contract for independently released commerce services
+type: application
+version: 0.1.0

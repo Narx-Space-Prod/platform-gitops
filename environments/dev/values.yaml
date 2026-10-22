@@ -1,0 +1,6 @@
+# Capacity profile only. A real release must supply its image repository and digest.
+replicaCount: 1
+autoscaling:
+  enabled: false
+podDisruptionBudget:
+  enabled: false
