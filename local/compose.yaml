@@ -11,6 +11,27 @@ x-app: &app
   stop_grace_period: 30s
 
 services:
+  queue-storage-init:
+    <<: *app
+    image: redis:7.4-alpine@sha256:892022f9f18c26c92c30e15194d132f90044af87b94a491a75429bbc3982eab1
+    user: "0:0"
+    cap_add: [CHOWN]
+    entrypoint: [/bin/chown]
+    command: ["10001:10001", /data]
+    volumes: [queue-data:/data]
+    mem_limit: 32m
+
+  elasticmq:
+    <<: *app
+    image: softwaremill/elasticmq-native:1.7.1@sha256:e4580ab9ad1bd5cd37b4ba04911bc5ccc8cd2d9ab4de56ece65acee71c24e05c
+    user: "10001:10001"
+    volumes:
+      - ./elasticmq.conf:/opt/elasticmq.conf:ro
+      - queue-data:/data
+    mem_limit: 128m
+    depends_on:
+      queue-storage-init: {condition: service_completed_successfully}
+
   postgres:
     image: postgres:16@sha256:1a6ab3f5345eb6dbe04a1349529caabdb0ab09293a09590fad07b2246bfa4b54
     environment:
@@ -101,6 +122,43 @@ services:
       start_period: 30s
       retries: 30
 
+  outbox-publisher:
+    <<: *app
+    image: narx-local/orders:dev
+    environment: &delivery-env
+      DATABASE_URL: jdbc:postgresql://postgres:5432/commerce
+      DATABASE_USER: commerce
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD:?Generate local/.env first}
+      SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE: "2"
+      DELIVERY_ROLE: publisher
+      DELIVERY_LOCAL: "true"
+      DELIVERY_ENDPOINT: http://elasticmq:9324
+      DELIVERY_QUEUE_URL: http://elasticmq:9324/000000000000/order-paid
+      AWS_REGION: us-east-1
+      DELIVERY_VISIBILITY_SECONDS: ${DELIVERY_VISIBILITY_SECONDS:-60}
+    depends_on:
+      orders: {condition: service_healthy}
+      elasticmq: {condition: service_started}
+    mem_limit: 320m
+    healthcheck: &delivery-health
+      test: [CMD, wget, -q, -O, /dev/null, http://127.0.0.1:8083/health/ready]
+      interval: 10s
+      timeout: 18s
+      start_period: 30s
+      retries: 20
+
+  receipt-worker:
+    <<: *app
+    image: narx-local/orders:dev
+    environment:
+      <<: *delivery-env
+      DELIVERY_ROLE: worker
+    depends_on:
+      orders: {condition: service_healthy}
+      elasticmq: {condition: service_started}
+    mem_limit: 320m
+    healthcheck: *delivery-health
+
   catalogue:
     <<: *app
     build:
@@ -146,3 +204,4 @@ services:
 
 volumes:
   database:
+  queue-data:
