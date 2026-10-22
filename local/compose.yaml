@@ -1,0 +1,148 @@
+name: narx-commerce
+
+# Developer preview and integration validation only. Kubernetes remains the dev/QA target.
+# Payments use an explicit local simulator; no Razorpay transaction is made.
+x-app: &app
+  init: true
+  read_only: true
+  tmpfs: [/tmp:size=64m]
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  stop_grace_period: 30s
+
+services:
+  postgres:
+    image: postgres:16@sha256:1a6ab3f5345eb6dbe04a1349529caabdb0ab09293a09590fad07b2246bfa4b54
+    environment:
+      POSTGRES_DB: commerce
+      POSTGRES_USER: commerce
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:?Generate local/.env first}
+    command: [postgres, -c, shared_buffers=32MB, -c, max_connections=30]
+    volumes: [database:/var/lib/postgresql/data]
+    mem_limit: 192m
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U commerce -d commerce]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    <<: *app
+    image: redis:7.4-alpine@sha256:892022f9f18c26c92c30e15194d132f90044af87b94a491a75429bbc3982eab1
+    user: "10001:10001"
+    working_dir: /tmp
+    command: [redis-server, --save, "", --appendonly, "no", --maxmemory, 32mb, --maxmemory-policy, noeviction]
+    mem_limit: 64m
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  razorpay-fixture:
+    <<: *app
+    image: python:3.12-slim@sha256:05cda9777409a9c3ffddd94a4c476b79f0769a0b4857f0c7ed9226b6800b0d6f
+    user: "10001:10001"
+    environment:
+      FIXTURE_PAYMENT_SECRET: ${FIXTURE_PAYMENT_SECRET:?Generate local/.env first}
+      PYTHONDONTWRITEBYTECODE: "1"
+    volumes:
+      - ../../commerce-orders/tests/fixtures/razorpay.py:/fixtures/razorpay.py:ro
+    command: [python, /fixtures/razorpay.py]
+    mem_limit: 48m
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8090/health/live', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  cart:
+    <<: *app
+    build:
+      context: ../../commerce-orders/cart
+      target: runtime
+    image: narx-local/cart:dev
+    environment:
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      redis: {condition: service_healthy}
+    mem_limit: 128m
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8082/health/ready', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  orders:
+    <<: *app
+    build:
+      context: ../../commerce-orders
+      target: runtime
+    image: narx-local/orders:dev
+    environment:
+      DATABASE_URL: jdbc:postgresql://postgres:5432/commerce
+      DATABASE_USER: commerce
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD:?Generate local/.env first}
+      CART_URL: http://cart:8082
+      ALLOW_PAYMENT_TEST_FIXTURE: "true"
+      RAZORPAY_KEY_ID: rzp_test_fixture
+      RAZORPAY_KEY_SECRET: ${FIXTURE_PAYMENT_SECRET:?Generate local/.env first}
+      RAZORPAY_WEBHOOK_SECRET: ${FIXTURE_WEBHOOK_SECRET:?Generate local/.env first}
+      RAZORPAY_API_BASE: http://razorpay-fixture:8090/v1
+    depends_on:
+      postgres: {condition: service_healthy}
+      cart: {condition: service_healthy}
+      razorpay-fixture: {condition: service_healthy}
+    mem_limit: 448m
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, http://127.0.0.1:8083/health/ready]
+      interval: 5s
+      timeout: 3s
+      start_period: 30s
+      retries: 30
+
+  catalogue:
+    <<: *app
+    build:
+      context: ../../commerce-catalogue
+      target: runtime
+    image: narx-local/catalogue:dev
+    environment:
+      COMMERCE_URL: http://orders:8083
+    depends_on:
+      orders: {condition: service_healthy}
+    mem_limit: 48m
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, http://127.0.0.1:8081/health/ready]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  frontend:
+    <<: *app
+    build:
+      context: ../../commerce-frontend
+      target: runtime
+    image: narx-local/frontend:dev
+    environment:
+      SESSION_SECRET: ${SESSION_SECRET:?Generate local/.env first}
+      PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:-http://localhost:18080}
+      COOKIE_SECURE: "false"
+      CATALOGUE_URL: http://catalogue:8081
+      CART_URL: http://cart:8082
+      ORDERS_URL: http://orders:8083
+    ports:
+      - ${APP_BIND_ADDRESS:-127.0.0.1}:${APP_PORT:-18080}:8080
+    depends_on:
+      catalogue: {condition: service_healthy}
+      orders: {condition: service_healthy}
+      cart: {condition: service_healthy}
+    mem_limit: 96m
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:8080/health/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 8s
+      retries: 20
+
+volumes:
+  database:
