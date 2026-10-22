@@ -1,0 +1,11 @@
+# Small learning-session capacity; actual node sizing follows the cost review.
+# This profile requires metrics-server before HPA can function.
+replicaCount: 2
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 3
+  targetCPUUtilizationPercentage: 70
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

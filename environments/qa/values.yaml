@@ -1,0 +1,7 @@
+# Capacity profile only. No application release is declared yet.
+replicaCount: 2
+autoscaling:
+  enabled: false
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

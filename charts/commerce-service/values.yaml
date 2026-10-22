@@ -1,0 +1,31 @@
+# The image identity is supplied by each reviewed service release.
+image:
+  repository: ""
+  digest: ""
+replicaCount: 1
+containerPort: 8080
+service:
+  enabled: true
+  port: 80
+serviceAccount:
+  annotations: {}
+podAnnotations: {}
+env: []
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+probes:
+  livenessPath: /health/live
+  readinessPath: /health/ready
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 4
+  targetCPUUtilizationPercentage: 70
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
