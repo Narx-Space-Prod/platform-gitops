@@ -5,11 +5,12 @@ Owner: Platform/release.
 Desired deployment state for dev, QA and production, including application releases and platform add-ons. The first PR adds the service chart and capacity profiles, not live Argo CD Applications.
 
 Project guide: [DOC.md](https://github.com/Narx-Space-Prod/platform-infrastructure/blob/main/DOC.md).
-The guide is introduced in the infrastructure foundation PR and becomes available on main after review.
 
 ## Current state
 
-Foundation only. Application code, cloud infrastructure and end-to-end delivery are not deployed.
+The shared chart and capacity profiles are merged. `local/compose.yaml` now provides
+a developer preview of the migrated application with PostgreSQL, Redis and an explicit
+local payment simulator. It is not the Kubernetes dev/QA deployment or an AWS environment.
 All changes after repository initialization go through feature branches and pull requests.
 These private repositories use GitHub Free; review enforcement requires the planned Team upgrade.
 
@@ -24,3 +25,26 @@ or add worker-node capacity automatically.
 `environments/*/values.yaml` contains capacity settings only. No deployable image references
 are present. Validation injects a dummy image into rendered output; it is never committed as a release.
 Argo CD registration, secrets, ingress, monitoring and real release records are pending.
+
+## Local preview and integration tests
+
+Clone the three application repositories beside this repository, generate `local/.env`
+using DOC.md, then run:
+
+```bash
+docker compose --env-file local/.env -f local/compose.yaml up --build -d --wait
+```
+
+Open `http://localhost:18080`. Backend ports and database ports are not published.
+All payments in this preview use the local simulator; no money is charged. PostgreSQL
+data persists in a named volume. Carts and simulator state are disposable.
+
+The opt-in test creates throwaway accounts and performs a local SQL role promotion:
+
+```bash
+NARX_LOCAL_TEST=1 NARX_COMPOSE_PROJECT=narx-commerce python3 -m unittest discover -s tests -v
+```
+
+It checks authentication, admin restrictions, INR prices, cart/stock, idempotent checkout,
+payment verification, customer order isolation, product concurrency checks, order status,
+refund retries and sales reporting. Run it only against this disposable preview.

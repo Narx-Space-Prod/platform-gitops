@@ -14,6 +14,18 @@ concurrency:
 
 jobs:
   workflows:
-    uses: Narx-Space-Prod/platform-ci/.github/workflows/workflows.yml@84e65dff43130bca4e00be19326c86eb0067c864
+    uses: Narx-Space-Prod/platform-ci/.github/workflows/workflows.yml@a40f96defaf04c3570034fb9ab4ceef25ef7065a
   helm:
-    uses: Narx-Space-Prod/platform-ci/.github/workflows/helm.yml@84e65dff43130bca4e00be19326c86eb0067c864
+    uses: Narx-Space-Prod/platform-ci/.github/workflows/helm.yml@a40f96defaf04c3570034fb9ab4ceef25ef7065a
+  preview:
+    name: Local preview configuration
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Validate developer preview configuration
+        run: docker compose --env-file local/.env.example -f local/compose.yaml config --quiet
+      - name: Validate integration-test Python syntax
+        run: python3 -m py_compile tests/test_local_stack.py
