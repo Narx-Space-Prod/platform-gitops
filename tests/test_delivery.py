@@ -1,6 +1,8 @@
 """Release policy and recovery invariants, without registry or cloud access."""
 import copy
 import json
+import os
+import subprocess
 from pathlib import Path
 import sys
 import tempfile
@@ -128,6 +130,49 @@ class DeliveryPolicy(unittest.TestCase):
         with patch.object(d, 'api', side_effect=api), patch.object(d, 'run', side_effect=run), patch.object(d, 'successful_run', return_value=True), patch.object(d, 'verify_image') as verify:
             self.assertEqual(d.released_facts()['frontend'], new)
             verify.assert_called_once_with(new)
+
+    def test_open_release_pr_refreshes_main_without_force_push_or_duplicate_pr(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            remote, work = root/'remote.git', root/'work'
+            subprocess.run(['git','init','--bare',str(remote)],check=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+            subprocess.run(['git','init','--initial-branch=main',str(work)],check=True,stdout=subprocess.DEVNULL)
+            previous_directory = Path.cwd()
+            original_run = d.run
+            existing, created = [], []
+            def command(*args, **kwargs):
+                if args[0] != 'gh':
+                    return original_run(*args, **kwargs)
+                if args[1:3] == ('pr','list'):
+                    return json.dumps(existing)
+                created.append(args)
+                return ''
+            try:
+                os.chdir(work)
+                original_run('git','config','user.name','Policy Test')
+                original_run('git','config','user.email','policy@example.invalid')
+                original_run('git','remote','add','origin',str(remote))
+                Path('README.md').write_text('initial')
+                original_run('git','add','README.md')
+                original_run('git','commit','-m','initial')
+                original_run('git','push','-u','origin','main')
+                value = d.bundle(self.facts)
+                branch = 'release/dev-' + value['release']['id'][:16]
+                with patch.object(d, 'ROOT', work), patch.object(d, 'run', side_effect=command):
+                    d.open_pr('dev', value, 'release')
+                    original_run('git','switch','main')
+                    original_run('git','branch','-D',branch)
+                    Path('README.md').write_text('unrelated main change')
+                    original_run('git','add','README.md')
+                    original_run('git','commit','-m','advance main')
+                    original_run('git','push','origin','main')
+                    existing.append({'state':'OPEN','number':1})
+                    d.open_pr('dev', value, 'release')
+                    original_run('git','merge-base','--is-ancestor','origin/main','HEAD')
+                    self.assertEqual(json.loads((work/'environments/dev/release.json').read_text()),value)
+                    self.assertEqual(len(created),1)
+            finally:
+                os.chdir(previous_directory)
 
     def test_bootstrap_is_non_deployable_and_has_no_fake_images(self):
         value = {'release': {'ready': False, 'id': '', 'components': {}, 'previous': None},
