@@ -83,9 +83,7 @@ services:
       DATABASE_URL: jdbc:postgresql://postgres:5432/commerce
       DATABASE_USER: commerce
       DATABASE_PASSWORD: ${DATABASE_PASSWORD:?Generate local/.env first}
-      CATALOGUE_URL: http://catalogue:8081
       CART_URL: http://cart:8082
-      COMMERCE_ENABLED: "true"
       ALLOW_PAYMENT_TEST_FIXTURE: "true"
       RAZORPAY_KEY_ID: rzp_test_fixture
       RAZORPAY_KEY_SECRET: ${FIXTURE_PAYMENT_SECRET:?Generate local/.env first}

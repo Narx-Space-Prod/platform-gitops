@@ -32,7 +32,8 @@ Clone the three application repositories beside this repository, generate `local
 using DOC.md, then run:
 
 ```bash
-docker compose --env-file local/.env -f local/compose.yaml up --build -d --wait
+docker compose --parallel 1 --env-file local/.env -f local/compose.yaml build
+docker compose --env-file local/.env -f local/compose.yaml up --no-build -d --wait
 ```
 
 Open `http://localhost:18080`. Backend ports and database ports are not published.

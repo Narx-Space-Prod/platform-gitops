@@ -40,6 +40,8 @@ class CommerceIntegration(unittest.TestCase):
                 return json.loads(payload)
 
         request("/health/ready")
+        delivery = {"name": "Integration Customer", "address": "1 Test Road", "city": "Test City", "postalCode": "560001", "country": "India"}
+        request("/api/orders", "POST", delivery, expected=401, headers={"Idempotency-Key": "guest-checkout-rejected"})
         products = request("/api/products")
         self.assertTrue(products)
         self.assertTrue(all(product["currency"] == "INR" for product in products))
@@ -51,7 +53,7 @@ class CommerceIntegration(unittest.TestCase):
         request("/api/admin/dashboard", expected=403)
         request(f"/api/cart/items/{product['id']}", "PUT", {"quantity": 2})
         key = "checkout-" + uuid.uuid4().hex
-        delivery = {"name": "Integration Customer", "address": "1 Test Road", "city": "Test City", "postalCode": "560001", "country": "India"}
+        request("/api/orders", "POST", {}, expected=400, headers={"Idempotency-Key": "delivery-required"})
         order = request("/api/orders", "POST", delivery, headers={"Idempotency-Key": key})
         replay = request("/api/orders", "POST", delivery, headers={"Idempotency-Key": key})
         self.assertEqual(replay["id"], order["id"])
