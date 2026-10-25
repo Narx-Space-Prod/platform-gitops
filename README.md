@@ -68,3 +68,12 @@ on a fresh disposable project: it stops/restarts that project's queue/worker and
 injects database failures to verify transaction rollback, retries, duplicates and DLQ
 recovery. Regular customer-flow tests do not stop services or inject these constraints.
 Real AWS queue policies, IAM, monitoring alarms and production redrive remain pending.
+
+## Required release-policy check
+
+`narx/release-verification` is reported automatically on each PR by the trusted base
+workflow. It fetches candidate release JSON as data, verifies source and environment
+evidence, and never executes candidate scripts. Changes without release JSON still
+receive a successful policy status after the trusted inspection. Deployable release
+changes remain blocked until AWS verification is activated. Main branch protection
+requires this status once its first live PR run has been verified.
