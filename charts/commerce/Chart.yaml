@@ -1,0 +1,36 @@
+apiVersion: v2
+name: commerce
+version: 0.1.0
+type: application
+description: One immutable commerce release per environment
+dependencies:
+  - name: commerce-service
+    version: 0.1.0
+    repository: file://../commerce-service
+    alias: frontend
+    condition: frontend.enabled
+  - name: commerce-service
+    version: 0.1.0
+    repository: file://../commerce-service
+    alias: catalogue
+    condition: catalogue.enabled
+  - name: commerce-service
+    version: 0.1.0
+    repository: file://../commerce-service
+    alias: orders
+    condition: orders.enabled
+  - name: commerce-service
+    version: 0.1.0
+    repository: file://../commerce-service
+    alias: cart
+    condition: cart.enabled
+  - name: commerce-service
+    version: 0.1.0
+    repository: file://../commerce-service
+    alias: publisher
+    condition: publisher.enabled
+  - name: commerce-service
+    version: 0.1.0
+    repository: file://../commerce-service
+    alias: worker
+    condition: worker.enabled

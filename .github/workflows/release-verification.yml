@@ -1,0 +1,115 @@
+name: Trusted release verification
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify candidate release identities
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: registry-verification
+    permissions:
+      contents: read
+      pull-requests: read
+      statuses: write
+      id-token: write
+    steps:
+      # SECURITY: checkout only the reviewed base commit. Never checkout, import or execute candidate code.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+      - name: Mark verification pending and fetch only candidate release JSON as data
+        id: candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$HEAD_SHA" \
+            -f state=pending -f context=narx/release-verification -f description='Checking immutable release policy'
+          python3 - <<'PY'
+          import base64, json, os, pathlib, subprocess
+          def api(path):
+              return json.loads(subprocess.check_output(['gh','api',path],text=True))
+          root = 'repos/' + os.environ['GITHUB_REPOSITORY']
+          pages = json.loads(subprocess.check_output(['gh','api','--paginate','--slurp',root + '/pulls/' + os.environ['PR_NUMBER'] + '/files?per_page=100'],text=True))
+          files = [entry for page in pages for entry in page]
+          allowed = {'environments/'+e+'/release.json' for e in ['dev','qa','production']}
+          candidates = []
+          for entry in files:
+              if entry.get('previous_filename') in allowed and entry['filename'] != entry['previous_filename']:
+                  raise SystemExit('Release state cannot be renamed')
+              if entry['filename'] not in allowed:
+                  continue
+              if entry['status'] == 'removed':
+                  raise SystemExit('Release state cannot be deleted')
+              data = api(root + '/contents/' + entry['filename'] + '?ref=' + os.environ['HEAD_SHA'])
+              raw = base64.b64decode(data['content'], validate=False)
+              if len(raw) > 65536:
+                  raise SystemExit('Release JSON exceeds size limit')
+              value = json.loads(raw)
+              path = pathlib.Path(os.environ['RUNNER_TEMP']) / ('candidate-' + str(len(candidates)) + '.json')
+              path.write_text(json.dumps(value))
+              candidates.append({'path': str(path), 'environment': entry['filename'].split('/')[1]})
+          pathlib.Path(os.environ['RUNNER_TEMP'],'candidates.json').write_text(json.dumps(candidates))
+          with open(os.environ['GITHUB_OUTPUT'],'a') as output:
+              output.write('changed=' + str(bool(candidates)).lower() + '\n')
+          PY
+      - name: Require configured AWS verification for deployable release changes
+        if: steps.candidate.outputs.changed == 'true'
+        env:
+          DELIVERY_ENABLED: ${{ vars.DELIVERY_ENABLED }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          for candidate in json.loads(Path(os.environ['RUNNER_TEMP'],'candidates.json').read_text()):
+              value=json.loads(Path(candidate['path']).read_text())
+              if value.get('release',{}).get('ready') and os.environ['DELIVERY_ENABLED'] != 'true':
+                  raise SystemExit('Deployable release is blocked until AWS verification is activated')
+          PY
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        if: steps.candidate.outputs.changed == 'true' && vars.DELIVERY_ENABLED == 'true'
+        with:
+          role-to-assume: ${{ vars.AWS_VERIFICATION_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          allowed-account-ids: ${{ vars.AWS_ACCOUNT_ID }}
+          role-duration-seconds: 900
+      - uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd # v2.1.7
+        if: steps.candidate.outputs.changed == 'true' && vars.DELIVERY_ENABLED == 'true'
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        if: steps.candidate.outputs.changed == 'true' && vars.DELIVERY_ENABLED == 'true'
+        with:
+          cosign-release: v3.1.4
+      - name: Apply trusted policy to candidate JSON
+        if: steps.candidate.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          NARX_DEPLOYMENT_BOT_LOGIN: ${{ vars.NARX_DEPLOYMENT_BOT_LOGIN }}
+        run: |
+          python3 - <<'PY'
+          import json, os, subprocess
+          from pathlib import Path
+          for candidate in json.loads(Path(os.environ['RUNNER_TEMP'],'candidates.json').read_text()):
+              subprocess.run(['python3','scripts/delivery.py','verify-candidate',candidate['path'], '--environment',candidate['environment'], '--revision',os.environ['BASE_SHA']], check=True)
+          PY
+      - name: Publish verification result on the candidate commit
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          RESULT: ${{ job.status }}
+        run: |
+          state=failure
+          if [ "$RESULT" = success ]; then state=success; fi
+          gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$HEAD_SHA" \
+            -f "state=$state" -f context=narx/release-verification -f description='Trusted immutable release validation'

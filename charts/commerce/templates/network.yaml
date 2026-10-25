@@ -1,0 +1,36 @@
+{{- if .Values.release.ready }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: commerce-isolation
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from: [{podSelector: {}}]
+    - from:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: monitoring}}
+      ports:
+        - {protocol: TCP, port: 8080}
+        - {protocol: TCP, port: 8081}
+        - {protocol: TCP, port: 8082}
+        - {protocol: TCP, port: 8083}
+  egress:
+    - to: [{podSelector: {}}]
+    - to: [{namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: kube-system}}}]
+      ports: [{protocol: UDP, port: 53}, {protocol: TCP, port: 53}]
+    - to: [{ipBlock: {cidr: 0.0.0.0/0, except: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16]}}]
+      ports: [{protocol: TCP, port: 443}]
+    {{- with .Values.externalDataCIDRs }}
+    - to:
+        {{- range . }}
+        - ipBlock: {cidr: {{ . | quote }}}
+        {{- end }}
+      ports: [{protocol: TCP, port: 5432}, {protocol: TCP, port: 6379}, {protocol: TCP, port: 6380}]
+    {{- end }}
+    {{- if .Values.podIdentity.enabled }}
+    - to: [{ipBlock: {cidr: 169.254.170.23/32}}]
+      ports: [{protocol: TCP, port: 80}]
+    {{- end }}
+# An enforcing CNI is required; kindnet alone does not enforce these policies.
+{{- end }}

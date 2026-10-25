@@ -2,7 +2,7 @@
 
 Owner: Platform/release.
 
-Desired deployment state for dev, QA and production, including application releases and platform add-ons. The first PR adds the service chart and capacity profiles, not live Argo CD Applications.
+Desired deployment state for dev, QA and production, including application releases and platform add-ons. A shared service chart and commerce umbrella chart provide digest-only deployment. Argo Applications and release automation are prepared; registration and AWS publishing remain disabled.
 
 Project guide: [DOC.md](https://github.com/Narx-Space-Prod/platform-infrastructure/blob/main/DOC.md).
 
@@ -27,7 +27,17 @@ or add worker-node capacity automatically.
 
 `environments/*/values.yaml` contains capacity settings only. No deployable image references
 are present. Validation injects a dummy image into rendered output; it is never committed as a release.
-Argo CD registration, secrets, ingress, monitoring and real release records are pending.
+`environments/*/runtime.yaml` configures the complete stack; `release.json` is the
+canonical image bundle, initially non-deployable. `applications/local/commerce.json`
+registers dev/QA only after operator bootstrap; `applications/aws/commerce.json` targets
+the future registered EKS cluster. `applications/notifications.json` is a data-only
+merge patch, not a standalone manifest; use the infrastructure helper to install it.
+
+The reconciler verifies signed main-build records before proposing release/promotion
+PRs. The trusted candidate verifier never executes PR code. Dev, QA and production
+all retain human review. Failed QA/production rollouts can propose reviewed rollback
+PRs; persistent data and SQL migrations are not rolled back. See DOC.md for exact App,
+OIDC, credential-refresh and activation steps. No new Argo Applications are live yet.
 
 ## Local preview and integration tests
 

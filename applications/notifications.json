@@ -1,0 +1,10 @@
+{
+  "data": {
+    "template.narx-pending": "github:\n  repoURLPath: \"{{.app.spec.source.repoURL}}\"\n  revisionPath: \"{{.app.status.sync.revision}}\"\n  status:\n    state: pending\n    label: 'narx/deploy-{{index .app.metadata.labels \"delivery.narx.space/environment\"}}'\n",
+    "trigger.narx-pending": "- description: Commerce pending deployment evidence\n  oncePer: \"app.status.sync.revision + ':' + app.status.operationState.startedAt + ':' + (app.status.health.lastTransitionTime ?? '')\"\n  send: [narx-pending]\n  when: app.status.operationState != nil && app.status.operationState.phase == 'Running'\n",
+    "template.narx-healthy": "github:\n  repoURLPath: \"{{.app.spec.source.repoURL}}\"\n  revisionPath: \"{{.app.status.sync.revision}}\"\n  status:\n    state: success\n    label: 'narx/deploy-{{index .app.metadata.labels \"delivery.narx.space/environment\"}}'\n",
+    "trigger.narx-healthy": "- description: Commerce healthy deployment evidence\n  oncePer: \"app.status.sync.revision + ':' + app.status.operationState.startedAt + ':' + (app.status.health.lastTransitionTime ?? '')\"\n  send: [narx-healthy]\n  when: app.status.operationState != nil && app.status.operationState.phase == 'Succeeded' && app.status.sync.status == 'Synced' && app.status.health.status == 'Healthy'\n",
+    "template.narx-failed": "github:\n  repoURLPath: \"{{.app.spec.source.repoURL}}\"\n  revisionPath: \"{{.app.status.sync.revision}}\"\n  status:\n    state: failure\n    label: 'narx/deploy-{{index .app.metadata.labels \"delivery.narx.space/environment\"}}'\n",
+    "trigger.narx-failed": "- description: Commerce failed deployment evidence\n  oncePer: \"app.status.sync.revision + ':' + app.status.operationState.startedAt + ':' + (app.status.health.lastTransitionTime ?? '')\"\n  send: [narx-failed]\n  when: app.status.operationState != nil && (app.status.operationState.phase in ['Error', 'Failed'] || app.status.health.status == 'Degraded')\n"
+  }
+}
