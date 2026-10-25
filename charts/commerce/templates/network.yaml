@@ -15,6 +15,7 @@ spec:
         - {protocol: TCP, port: 8081}
         - {protocol: TCP, port: 8082}
         - {protocol: TCP, port: 8083}
+        - {protocol: TCP, port: 8090}
   egress:
     - to: [{podSelector: {}}]
     - to: [{namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: kube-system}}}]
@@ -33,4 +34,24 @@ spec:
       ports: [{protocol: TCP, port: 80}]
     {{- end }}
 # An enforcing CNI is required; kindnet alone does not enforce these policies.
+{{- end }}
+
+{{- if and .Values.release.ready .Values.rolloutsController.enabled }}
+{{- $cidrs := concat .Values.rolloutsController.apiServerCIDRs .Values.externalDataCIDRs }}
+{{- if $cidrs }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: commerce-rollouts-api
+spec:
+  podSelector: {matchLabels: {app.kubernetes.io/name: narx-rollouts}}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        {{- range $cidrs }}
+        - ipBlock: {cidr: {{ . | quote }}}
+        {{- end }}
+      ports: [{protocol: TCP, port: 443}, {protocol: TCP, port: 6443}]
+{{- end }}
 {{- end }}

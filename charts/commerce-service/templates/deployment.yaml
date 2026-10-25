@@ -1,8 +1,8 @@
 {{- if and .Values.autoscaling.enabled (lt (int .Values.autoscaling.maxReplicas) (int .Values.autoscaling.minReplicas)) }}
 {{- fail "autoscaling.maxReplicas must be at least autoscaling.minReplicas" }}
 {{- end }}
-apiVersion: apps/v1
-kind: Deployment
+apiVersion: {{ ternary "argoproj.io/v1alpha1" "apps/v1" .Values.progressive.enabled }}
+kind: {{ ternary "Rollout" "Deployment" .Values.progressive.enabled }}
 metadata:
   name: {{ include "commerce-service.fullname" . }}
   labels:
@@ -15,10 +15,26 @@ spec:
   revisionHistoryLimit: 3
   progressDeadlineSeconds: 300
   strategy:
+    {{- if .Values.progressive.enabled }}
+    blueGreen:
+      activeService: {{ include "commerce-service.fullname" . }}
+      previewService: {{ include "commerce-service.fullname" . }}-preview
+      autoPromotionEnabled: true
+      scaleDownDelaySeconds: {{ .Values.progressive.scaleDownDelaySeconds }}
+      scaleDownDelayRevisionLimit: 1
+      abortScaleDownDelaySeconds: 30
+      prePromotionAnalysis:
+        templates: [{templateName: {{ include "commerce-service.fullname" . }}-verify}]
+        args: [{name: target-url, value: {{ printf "http://%s-preview" (include "commerce-service.fullname" .) | quote }}}]
+      postPromotionAnalysis:
+        templates: [{templateName: {{ include "commerce-service.fullname" . }}-verify}]
+        args: [{name: target-url, value: {{ printf "http://%s" (include "commerce-service.fullname" .) | quote }}}]
+    {{- else }}
     type: RollingUpdate
     rollingUpdate:
       maxSurge: 1
       maxUnavailable: 0
+    {{- end }}
   selector:
     matchLabels:
       app.kubernetes.io/name: {{ .Chart.Name }}
@@ -26,6 +42,7 @@ spec:
   template:
     metadata:
       labels:
+        app.kubernetes.io/part-of: narx-commerce
         app.kubernetes.io/name: {{ .Chart.Name }}
         app.kubernetes.io/instance: {{ include "commerce-service.fullname" . }}
       {{- with .Values.podAnnotations }}

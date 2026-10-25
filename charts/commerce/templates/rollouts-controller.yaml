@@ -1,0 +1,355 @@
+{{- if and .Values.release.ready .Values.rolloutsController.enabled }}
+{
+  "apiVersion": "v1",
+  "kind": "ServiceAccount",
+  "metadata": {
+    "name": "narx-rollouts",
+    "annotations": {
+      "argocd.argoproj.io/sync-wave": "-2"
+    }
+  }
+}
+---
+{
+  "apiVersion": "rbac.authorization.k8s.io/v1",
+  "kind": "Role",
+  "metadata": {
+    "name": "narx-rollouts",
+    "annotations": {
+      "argocd.argoproj.io/sync-wave": "-2"
+    }
+  },
+  "rules": [
+    {
+      "apiGroups": [
+        "argoproj.io"
+      ],
+      "resources": [
+        "rollouts",
+        "rollouts/status",
+        "rollouts/finalizers"
+      ],
+      "verbs": [
+        "get",
+        "list",
+        "watch",
+        "update",
+        "patch"
+      ]
+    },
+    {
+      "apiGroups": [
+        "argoproj.io"
+      ],
+      "resources": [
+        "analysisruns",
+        "analysisruns/finalizers",
+        "experiments",
+        "experiments/finalizers"
+      ],
+      "verbs": [
+        "create",
+        "get",
+        "list",
+        "watch",
+        "update",
+        "patch",
+        "delete"
+      ]
+    },
+    {
+      "apiGroups": [
+        "argoproj.io"
+      ],
+      "resources": [
+        "analysistemplates"
+      ],
+      "verbs": [
+        "get",
+        "list",
+        "watch"
+      ]
+    },
+    {
+      "apiGroups": [
+        "apps"
+      ],
+      "resources": [
+        "replicasets"
+      ],
+      "verbs": [
+        "create",
+        "get",
+        "list",
+        "watch",
+        "update",
+        "patch",
+        "delete"
+      ]
+    },
+    {
+      "apiGroups": [
+        "",
+        "apps"
+      ],
+      "resources": [
+        "deployments",
+        "podtemplates"
+      ],
+      "verbs": [
+        "get",
+        "list",
+        "watch",
+        "update"
+      ]
+    },
+    {
+      "apiGroups": [
+        ""
+      ],
+      "resources": [
+        "services"
+      ],
+      "verbs": [
+        "get",
+        "list",
+        "watch",
+        "patch",
+        "create",
+        "delete"
+      ]
+    },
+    {
+      "apiGroups": [
+        "coordination.k8s.io"
+      ],
+      "resources": [
+        "leases"
+      ],
+      "verbs": [
+        "create",
+        "get",
+        "update"
+      ]
+    },
+    {
+      "apiGroups": [
+        ""
+      ],
+      "resources": [
+        "secrets",
+        "configmaps"
+      ],
+      "verbs": [
+        "get",
+        "list",
+        "watch"
+      ]
+    },
+    {
+      "apiGroups": [
+        ""
+      ],
+      "resources": [
+        "pods"
+      ],
+      "verbs": [
+        "list",
+        "update",
+        "watch"
+      ]
+    },
+    {
+      "apiGroups": [
+        ""
+      ],
+      "resources": [
+        "pods/eviction"
+      ],
+      "verbs": [
+        "create"
+      ]
+    },
+    {
+      "apiGroups": [
+        ""
+      ],
+      "resources": [
+        "events"
+      ],
+      "verbs": [
+        "create",
+        "update",
+        "patch"
+      ]
+    },
+    {
+      "apiGroups": [
+        "batch"
+      ],
+      "resources": [
+        "jobs"
+      ],
+      "verbs": [
+        "create",
+        "get",
+        "list",
+        "watch",
+        "update",
+        "patch",
+        "delete"
+      ]
+    },
+    {
+      "apiGroups": [
+        ""
+      ],
+      "resources": [
+        "endpoints"
+      ],
+      "verbs": [
+        "get"
+      ]
+    },
+    {
+      "apiGroups": [
+        "networking.k8s.io"
+      ],
+      "resources": [
+        "ingresses"
+      ],
+      "verbs": [
+        "get",
+        "list",
+        "watch"
+      ]
+    }
+  ]
+}
+---
+{
+  "apiVersion": "rbac.authorization.k8s.io/v1",
+  "kind": "RoleBinding",
+  "metadata": {
+    "name": "narx-rollouts",
+    "annotations": {
+      "argocd.argoproj.io/sync-wave": "-2"
+    }
+  },
+  "roleRef": {
+    "apiGroup": "rbac.authorization.k8s.io",
+    "kind": "Role",
+    "name": "narx-rollouts"
+  },
+  "subjects": [
+    {
+      "kind": "ServiceAccount",
+      "name": "narx-rollouts",
+      "namespace": "{{ .Release.Namespace }}"
+    }
+  ]
+}
+---
+{
+  "apiVersion": "apps/v1",
+  "kind": "Deployment",
+  "metadata": {
+    "name": "narx-rollouts",
+    "annotations": {
+      "argocd.argoproj.io/sync-wave": "-1"
+    }
+  },
+  "spec": {
+    "replicas": 1,
+    "selector": {
+      "matchLabels": {
+        "app.kubernetes.io/name": "narx-rollouts"
+      }
+    },
+    "template": {
+      "metadata": {
+        "labels": {
+          "app.kubernetes.io/name": "narx-rollouts",
+          "app.kubernetes.io/part-of": "narx-commerce"
+        }
+      },
+      "spec": {
+        "serviceAccountName": "narx-rollouts",
+        "automountServiceAccountToken": true,
+        "securityContext": {
+          "runAsNonRoot": true,
+          "runAsUser": 999,
+          "runAsGroup": 999,
+          "seccompProfile": {
+            "type": "RuntimeDefault"
+          }
+        },
+        "containers": [
+          {
+            "name": "controller",
+            "image": "{{ .Values.rolloutsController.image }}",
+            "args": [
+              "--namespaced"
+            ],
+            "ports": [
+              {
+                "name": "metrics",
+                "containerPort": 8090
+              }
+            ],
+            "resources": {
+              "requests": {
+                "cpu": "25m",
+                "memory": "64Mi"
+              },
+              "limits": {
+                "cpu": "300m",
+                "memory": "192Mi"
+              }
+            },
+            "securityContext": {
+              "allowPrivilegeEscalation": false,
+              "readOnlyRootFilesystem": true,
+              "capabilities": {
+                "drop": [
+                  "ALL"
+                ]
+              }
+            },
+            "volumeMounts": [
+              {
+                "name": "tmp",
+                "mountPath": "/tmp"
+              }
+            ],
+            "readinessProbe": {
+              "httpGet": {
+                "path": "/healthz",
+                "port": 8080
+              },
+              "initialDelaySeconds": 5,
+              "periodSeconds": 5
+            },
+            "livenessProbe": {
+              "httpGet": {
+                "path": "/healthz",
+                "port": 8080
+              },
+              "initialDelaySeconds": 30,
+              "periodSeconds": 10
+            }
+          }
+        ],
+        "volumes": [
+          {
+            "name": "tmp",
+            "emptyDir": {
+              "sizeLimit": "32Mi"
+            }
+          }
+        ]
+      }
+    }
+  }
+}
+{{- end }}

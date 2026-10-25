@@ -16,7 +16,7 @@ jobs:
   workflows:
     uses: Narx-Space-Prod/platform-ci/.github/workflows/workflows.yml@f907416baf6ffca41626f10df94f7631d86de8c0
   helm:
-    uses: Narx-Space-Prod/platform-ci/.github/workflows/helm.yml@f907416baf6ffca41626f10df94f7631d86de8c0
+    uses: Narx-Space-Prod/platform-ci/.github/workflows/helm.yml@555e6a413028a5ae9e2c5efac0b62dcd2b71e1c7
   preview:
     name: Local preview configuration
     runs-on: ubuntu-24.04
@@ -29,3 +29,20 @@ jobs:
         run: docker compose --env-file local/.env.example -f local/compose.yaml config --quiet
       - name: Validate integration-test Python syntax
         run: python3 -m py_compile tests/test_local_stack.py
+      - name: Validate observability rules with the pinned Prometheus engine
+        run: |
+          python3 -m pip install --disable-pip-version-check PyYAML==6.0.3
+          python3 - <<'PYTHON'
+          import os, shutil
+          from pathlib import Path
+          import yaml
+          folder = Path(os.environ['RUNNER_TEMP'])/'narx-rules'
+          folder.mkdir()
+          values = yaml.safe_load(Path('monitoring/local-values.yaml').read_text())
+          (folder/'rules.yml').write_text(yaml.safe_dump({'groups': values['integration']['ruleGroups']}))
+          shutil.copyfile('monitoring/rules.test.yml', folder/'rules.test.yml')
+          PYTHON
+          docker run --rm --network none --read-only --tmpfs /tmp:rw,nosuid,size=128m --memory=256m --cpus=1 --cap-drop=ALL \
+            -v "$RUNNER_TEMP/narx-rules:/work:ro" --entrypoint /bin/promtool \
+            prom/prometheus@sha256:efd719c99d83b060d9daefdcf00360461adf279f45ef5391f8d111892118753e \
+            test rules /work/rules.test.yml

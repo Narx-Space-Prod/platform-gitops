@@ -4,3 +4,10 @@ cookieSecure: false
 localData:
   enabled: true
   storageClass: standard
+
+frontend:
+  progressive: {enabled: true}
+rolloutsController:
+  enabled: true
+  # Stable local service/node networks; no laptop IP is embedded.
+  apiServerCIDRs: [10.96.0.1/32, 172.18.0.0/16]

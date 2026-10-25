@@ -5,8 +5,8 @@ metadata:
   name: {{ include "commerce-service.fullname" . }}
 spec:
   scaleTargetRef:
-    apiVersion: apps/v1
-    kind: Deployment
+    apiVersion: {{ ternary "argoproj.io/v1alpha1" "apps/v1" .Values.progressive.enabled }}
+    kind: {{ ternary "Rollout" "Deployment" .Values.progressive.enabled }}
     name: {{ include "commerce-service.fullname" . }}
   minReplicas: {{ .Values.autoscaling.minReplicas }}
   maxReplicas: {{ .Values.autoscaling.maxReplicas }}

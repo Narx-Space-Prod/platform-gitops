@@ -1,0 +1,660 @@
+integration:
+  namespaces: &id001
+  - commerce-dev
+  - commerce-qa
+  scrapeConfigs:
+  - job_name: narx-http
+    kubernetes_sd_configs:
+    - role: pod
+      namespaces:
+        names: *id001
+      selectors:
+      - role: pod
+        label: app.kubernetes.io/part-of=narx-commerce
+    metrics_path: /metrics
+    relabel_configs:
+    - source_labels:
+      - __meta_kubernetes_pod_label_app_kubernetes_io_name
+      regex: frontend|catalogue|cart
+      action: keep
+    - source_labels:
+      - __meta_kubernetes_pod_container_port_name
+      regex: http
+      action: keep
+    - source_labels:
+      - __meta_kubernetes_pod_phase
+      regex: Running
+      action: keep
+    - source_labels:
+      - __meta_kubernetes_pod_label_app_kubernetes_io_name
+      target_label: service
+    - source_labels:
+      - __meta_kubernetes_namespace
+      regex: commerce-(.*)
+      replacement: ${1}
+      target_label: environment
+    - source_labels:
+      - __meta_kubernetes_namespace
+      target_label: namespace
+    - source_labels:
+      - __meta_kubernetes_pod_name
+      target_label: pod
+    - target_label: project
+      replacement: narx-commerce
+  - job_name: narx-orders
+    kubernetes_sd_configs:
+    - role: pod
+      namespaces:
+        names: *id001
+      selectors:
+      - role: pod
+        label: app.kubernetes.io/part-of=narx-commerce
+    metrics_path: /actuator/prometheus
+    relabel_configs:
+    - source_labels:
+      - __meta_kubernetes_pod_label_app_kubernetes_io_name
+      regex: orders|publisher|worker
+      action: keep
+    - source_labels:
+      - __meta_kubernetes_pod_container_port_name
+      regex: http
+      action: keep
+    - source_labels:
+      - __meta_kubernetes_pod_phase
+      regex: Running
+      action: keep
+    - source_labels:
+      - __meta_kubernetes_pod_label_app_kubernetes_io_name
+      target_label: service
+    - source_labels:
+      - __meta_kubernetes_namespace
+      regex: commerce-(.*)
+      replacement: ${1}
+      target_label: environment
+    - source_labels:
+      - __meta_kubernetes_namespace
+      target_label: namespace
+    - source_labels:
+      - __meta_kubernetes_pod_name
+      target_label: pod
+    - target_label: project
+      replacement: narx-commerce
+  - job_name: narx-rollouts
+    kubernetes_sd_configs:
+    - role: pod
+      namespaces:
+        names: *id001
+      selectors:
+      - role: pod
+        label: app.kubernetes.io/part-of=narx-commerce
+    metrics_path: /metrics
+    relabel_configs:
+    - source_labels:
+      - __meta_kubernetes_pod_label_app_kubernetes_io_name
+      regex: narx-rollouts
+      action: keep
+    - source_labels:
+      - __meta_kubernetes_pod_container_port_name
+      regex: metrics
+      action: keep
+    - source_labels:
+      - __meta_kubernetes_pod_phase
+      regex: Running
+      action: keep
+    - source_labels:
+      - __meta_kubernetes_pod_label_app_kubernetes_io_name
+      target_label: service
+    - source_labels:
+      - __meta_kubernetes_namespace
+      regex: commerce-(.*)
+      replacement: ${1}
+      target_label: environment
+    - source_labels:
+      - __meta_kubernetes_namespace
+      target_label: namespace
+    - source_labels:
+      - __meta_kubernetes_pod_name
+      target_label: pod
+    - target_label: project
+      replacement: narx-commerce
+  - job_name: narx-readiness
+    kubernetes_sd_configs:
+    - role: pod
+      namespaces:
+        names: *id001
+      selectors:
+      - role: pod
+        label: app.kubernetes.io/part-of=narx-commerce
+    metrics_path: /probe
+    params:
+      module:
+      - http_ready
+    relabel_configs:
+    - source_labels:
+      - __meta_kubernetes_pod_label_app_kubernetes_io_name
+      regex: frontend|catalogue|cart|orders|publisher|worker
+      action: keep
+    - source_labels:
+      - __meta_kubernetes_pod_container_port_name
+      regex: http
+      action: keep
+    - source_labels:
+      - __meta_kubernetes_pod_phase
+      regex: Running
+      action: keep
+    - source_labels:
+      - __meta_kubernetes_pod_label_app_kubernetes_io_name
+      target_label: service
+    - source_labels:
+      - __meta_kubernetes_namespace
+      regex: commerce-(.*)
+      replacement: ${1}
+      target_label: environment
+    - source_labels:
+      - __meta_kubernetes_namespace
+      target_label: namespace
+    - source_labels:
+      - __meta_kubernetes_pod_name
+      target_label: pod
+    - target_label: project
+      replacement: narx-commerce
+    - source_labels:
+      - __address__
+      target_label: __param_target
+      replacement: http://${1}/health/ready
+    - source_labels:
+      - __param_target
+      target_label: instance
+    - target_label: __address__
+      replacement: blackbox-exporter.monitoring.svc:9115
+  - job_name: narx-argocd
+    static_configs:
+    - targets:
+      - argocd-metrics.argocd.svc:8082
+      labels:
+        project: narx-commerce
+        environment: platform
+        service: argocd
+    metric_relabel_configs:
+    - source_labels:
+      - __name__
+      regex: argocd_app_info|argocd_app_sync_total
+      action: keep
+    - source_labels:
+      - name
+      regex: narx-commerce-(dev|qa)
+      action: keep
+    - source_labels:
+      - name
+      regex: narx-commerce-(.*)
+      target_label: environment
+      replacement: ${1}
+  ruleGroups:
+  - name: narx-commerce
+    rules:
+    - alert: NarxMetricsTargetDown
+      expr: up{project="narx-commerce",job!="narx-readiness"} == 0
+      for: 2m
+      labels:
+        project: narx-commerce
+        severity: warning
+      annotations:
+        summary: Narx {{ $labels.environment }} {{ $labels.service }} metrics endpoint
+          is down
+        runbook_url: https://github.com/Narx-Space-Prod/platform-infrastructure/blob/main/DOC.md#local-monitoring-and-progressive-delivery
+    - alert: NarxServiceUnready
+      expr: probe_success{project="narx-commerce"} == 0
+      for: 2m
+      labels:
+        project: narx-commerce
+        severity: critical
+      annotations:
+        summary: Narx {{ $labels.environment }} {{ $labels.service }} readiness is
+          failing
+        runbook_url: https://github.com/Narx-Space-Prod/platform-infrastructure/blob/main/DOC.md#local-monitoring-and-progressive-delivery
+    - alert: NarxPodRestarting
+      expr: increase(kube_pod_container_status_restarts_total{project="narx-commerce"}[15m])
+        > 3
+      for: 3m
+      labels:
+        project: narx-commerce
+        severity: warning
+      annotations:
+        summary: Narx pod {{ $labels.pod }} restarted repeatedly
+        runbook_url: https://github.com/Narx-Space-Prod/platform-infrastructure/blob/main/DOC.md#local-monitoring-and-progressive-delivery
+    - alert: NarxPodStuck
+      expr: kube_pod_status_phase{project="narx-commerce",phase=~"Pending|Unknown"}
+        == 1
+      for: 5m
+      labels:
+        project: narx-commerce
+        severity: warning
+      annotations:
+        summary: Narx pod {{ $labels.pod }} is stuck
+        runbook_url: https://github.com/Narx-Space-Prod/platform-infrastructure/blob/main/DOC.md#local-monitoring-and-progressive-delivery
+    - alert: NarxPodUnready
+      expr: (kube_pod_status_ready{project="narx-commerce",condition="true"} == 0)
+        and on(namespace,pod) (kube_pod_status_phase{project="narx-commerce",phase="Running"}
+        == 1)
+      for: 5m
+      labels:
+        project: narx-commerce
+        severity: warning
+      annotations:
+        summary: Narx pod {{ $labels.pod }} is running but unready
+        runbook_url: https://github.com/Narx-Space-Prod/platform-infrastructure/blob/main/DOC.md#local-monitoring-and-progressive-delivery
+    - alert: NarxDeploymentUnavailable
+      expr: kube_deployment_spec_replicas{project="narx-commerce"} > kube_deployment_status_replicas_available{project="narx-commerce"}
+      for: 5m
+      labels:
+        project: narx-commerce
+        severity: warning
+      annotations:
+        summary: Narx deployment {{ $labels.deployment }} has unavailable replicas
+        runbook_url: https://github.com/Narx-Space-Prod/platform-infrastructure/blob/main/DOC.md#local-monitoring-and-progressive-delivery
+    - alert: NarxPVCUnbound
+      expr: kube_persistentvolumeclaim_status_phase{project="narx-commerce",phase="Pending"}
+        == 1
+      for: 5m
+      labels:
+        project: narx-commerce
+        severity: warning
+      annotations:
+        summary: Narx PVC {{ $labels.persistentvolumeclaim }} is unbound
+        runbook_url: https://github.com/Narx-Space-Prod/platform-infrastructure/blob/main/DOC.md#local-monitoring-and-progressive-delivery
+    - alert: NarxHTTPErrorRate
+      expr: (sum by(environment,service)(rate(boutique_http_requests_total{project="narx-commerce",status=~"5.."}[5m]))
+        / sum by(environment,service)(rate(boutique_http_requests_total{project="narx-commerce"}[5m]))
+        > 0.05) and (sum by(environment,service)(rate(boutique_http_requests_total{project="narx-commerce"}[5m]))
+        > 0.1)
+      for: 5m
+      labels:
+        project: narx-commerce
+        severity: critical
+      annotations:
+        summary: Narx {{ $labels.service }} exceeds 5% HTTP errors
+        runbook_url: https://github.com/Narx-Space-Prod/platform-infrastructure/blob/main/DOC.md#local-monitoring-and-progressive-delivery
+    - alert: NarxOrdersHTTPErrorRate
+      expr: (sum by(environment,service)(rate(http_server_requests_seconds_count{project="narx-commerce",service="orders",status=~"5..",uri!~"/health/.*|/actuator/.*"}[5m]))
+        / sum by(environment,service)(rate(http_server_requests_seconds_count{project="narx-commerce",service="orders",uri!~"/health/.*|/actuator/.*"}[5m]))
+        > 0.05) and (sum by(environment,service)(rate(http_server_requests_seconds_count{project="narx-commerce",service="orders",uri!~"/health/.*|/actuator/.*"}[5m]))
+        > 0.1)
+      for: 5m
+      labels:
+        project: narx-commerce
+        severity: critical
+      annotations:
+        summary: Narx Orders API exceeds 5% HTTP errors
+        runbook_url: https://github.com/Narx-Space-Prod/platform-infrastructure/blob/main/DOC.md#local-monitoring-and-progressive-delivery
+    - alert: NarxOutboxStalled
+      expr: commerce_outbox_oldest_seconds{project="narx-commerce",role="publisher"}
+        > 120
+      for: 2m
+      labels:
+        project: narx-commerce
+        severity: critical
+        service: publisher
+      annotations:
+        summary: Narx paid order events have waited over two minutes
+        runbook_url: https://github.com/Narx-Space-Prod/platform-infrastructure/blob/main/DOC.md#local-monitoring-and-progressive-delivery
+    - alert: NarxQueueProcessingFailures
+      expr: sum by(environment)(increase(commerce_queue_consume_total{project="narx-commerce",result="failed"}[10m]))
+        > 3
+      for: 2m
+      labels:
+        project: narx-commerce
+        severity: critical
+        service: worker
+      annotations:
+        summary: Narx worker repeatedly failed to process queue messages
+        runbook_url: https://github.com/Narx-Space-Prod/platform-infrastructure/blob/main/DOC.md#local-monitoring-and-progressive-delivery
+    - alert: NarxQueuePollingFailures
+      expr: sum by(environment)(increase(commerce_queue_poll_total{project="narx-commerce",result="failed"}[5m]))
+        > 3
+      for: 2m
+      labels:
+        project: narx-commerce
+        severity: critical
+        service: worker
+      annotations:
+        summary: Narx worker cannot poll the order queue
+        runbook_url: https://github.com/Narx-Space-Prod/platform-infrastructure/blob/main/DOC.md#local-monitoring-and-progressive-delivery
+    - alert: NarxRolloutDegraded
+      expr: rollout_info{project="narx-commerce",phase="Degraded"} == 1
+      for: 1m
+      labels:
+        project: narx-commerce
+        severity: critical
+        service: frontend
+      annotations:
+        summary: Narx frontend rollout is degraded; inspect analysis and the rollback
+          PR
+        runbook_url: https://github.com/Narx-Space-Prod/platform-infrastructure/blob/main/DOC.md#local-monitoring-and-progressive-delivery
+    - alert: NarxArgoApplicationDegraded
+      expr: argocd_app_info{project="narx-commerce",health_status=~"Degraded|Missing|Unknown"}
+        == 1
+      for: 3m
+      labels:
+        project: narx-commerce
+        severity: critical
+        service: delivery
+      annotations:
+        summary: Narx {{ $labels.name }} is degraded; inspect the Argo operation and
+          rollout analysis
+        runbook_url: https://github.com/Narx-Space-Prod/platform-infrastructure/blob/main/DOC.md#local-monitoring-and-progressive-delivery
+    - alert: NarxArgoOutOfSync
+      expr: argocd_app_info{project="narx-commerce",sync_status="OutOfSync"} == 1
+      for: 10m
+      labels:
+        project: narx-commerce
+        severity: warning
+        service: delivery
+      annotations:
+        summary: Narx {{ $labels.name }} has not reconciled approved Git state
+        runbook_url: https://github.com/Narx-Space-Prod/platform-infrastructure/blob/main/DOC.md#local-monitoring-and-progressive-delivery
+  dashboards:
+    narx-commerce:
+      uid: narx-commerce
+      title: Narx Commerce — Delivery and Runtime
+      schemaVersion: 39
+      version: 1
+      tags:
+      - narx
+      - commerce
+      refresh: 30s
+      time:
+        from: now-1h
+        to: now
+      timezone: browser
+      templating:
+        list:
+        - name: environment
+          type: custom
+          query: dev,qa
+          current:
+            text: dev
+            value: dev
+          includeAll: true
+          allValue: .*
+          multi: false
+      panels:
+      - id: 1
+        title: Application targets
+        type: stat
+        gridPos:
+          x: 0
+          y: 0
+          w: 12
+          h: 8
+        datasource:
+          type: prometheus
+          uid: prometheus
+        targets:
+        - refId: A
+          expr: up{project="narx-commerce",environment=~"$environment",job!="narx-readiness"}
+          legendFormat: '{{service}} {{pod}}'
+        fieldConfig:
+          defaults:
+            unit: short
+          overrides: []
+      - id: 2
+        title: Readiness probes
+        type: stat
+        gridPos:
+          x: 12
+          y: 0
+          w: 12
+          h: 8
+        datasource:
+          type: prometheus
+          uid: prometheus
+        targets:
+        - refId: A
+          expr: probe_success{project="narx-commerce",environment=~"$environment"}
+          legendFormat: '{{service}} {{pod}}'
+        fieldConfig:
+          defaults:
+            unit: short
+          overrides: []
+      - id: 3
+        title: HTTP requests / second
+        type: timeseries
+        gridPos:
+          x: 0
+          y: 8
+          w: 12
+          h: 8
+        datasource:
+          type: prometheus
+          uid: prometheus
+        targets:
+        - refId: A
+          expr: sum by(service)(rate(boutique_http_requests_total{project="narx-commerce",environment=~"$environment"}[5m]))
+          legendFormat: '{{service}} {{pod}}'
+        fieldConfig:
+          defaults:
+            unit: reqps
+          overrides: []
+      - id: 4
+        title: Orders API requests / second
+        type: timeseries
+        gridPos:
+          x: 12
+          y: 8
+          w: 12
+          h: 8
+        datasource:
+          type: prometheus
+          uid: prometheus
+        targets:
+        - refId: A
+          expr: sum by(service)(rate(http_server_requests_seconds_count{project="narx-commerce",environment=~"$environment",role="api",uri!~"/health/.*|/actuator/.*"}[5m]))
+          legendFormat: '{{service}} {{pod}}'
+        fieldConfig:
+          defaults:
+            unit: reqps
+          overrides: []
+      - id: 5
+        title: HTTP p95 latency
+        type: timeseries
+        gridPos:
+          x: 0
+          y: 16
+          w: 12
+          h: 8
+        datasource:
+          type: prometheus
+          uid: prometheus
+        targets:
+        - refId: A
+          expr: histogram_quantile(0.95,sum by(le,service)(rate(boutique_http_request_duration_seconds_bucket{project="narx-commerce",environment=~"$environment"}[5m])))
+          legendFormat: '{{service}} {{pod}}'
+        fieldConfig:
+          defaults:
+            unit: s
+          overrides: []
+      - id: 6
+        title: HTTP 5xx / second
+        type: timeseries
+        gridPos:
+          x: 12
+          y: 16
+          w: 12
+          h: 8
+        datasource:
+          type: prometheus
+          uid: prometheus
+        targets:
+        - refId: A
+          expr: sum by(service)(rate(boutique_http_requests_total{project="narx-commerce",environment=~"$environment",status=~"5.."}[5m]))
+          legendFormat: '{{service}} {{pod}}'
+        fieldConfig:
+          defaults:
+            unit: reqps
+          overrides: []
+      - id: 7
+        title: Unpublished paid order events
+        type: timeseries
+        gridPos:
+          x: 0
+          y: 24
+          w: 12
+          h: 8
+        datasource:
+          type: prometheus
+          uid: prometheus
+        targets:
+        - refId: A
+          expr: commerce_outbox_pending{project="narx-commerce",environment=~"$environment",role="publisher"}
+          legendFormat: '{{service}} {{pod}}'
+        fieldConfig:
+          defaults:
+            unit: short
+          overrides: []
+      - id: 8
+        title: Oldest unpublished event
+        type: timeseries
+        gridPos:
+          x: 12
+          y: 24
+          w: 12
+          h: 8
+        datasource:
+          type: prometheus
+          uid: prometheus
+        targets:
+        - refId: A
+          expr: commerce_outbox_oldest_seconds{project="narx-commerce",environment=~"$environment",role="publisher"}
+          legendFormat: '{{service}} {{pod}}'
+        fieldConfig:
+          defaults:
+            unit: s
+          overrides: []
+      - id: 9
+        title: Queue processing / second
+        type: timeseries
+        gridPos:
+          x: 0
+          y: 32
+          w: 12
+          h: 8
+        datasource:
+          type: prometheus
+          uid: prometheus
+        targets:
+        - refId: A
+          expr: sum by(result)(rate(commerce_queue_consume_total{project="narx-commerce",environment=~"$environment"}[5m]))
+          legendFormat: '{{service}} {{pod}}'
+        fieldConfig:
+          defaults:
+            unit: ops
+          overrides: []
+      - id: 10
+        title: Container restarts (15 minutes)
+        type: timeseries
+        gridPos:
+          x: 12
+          y: 32
+          w: 12
+          h: 8
+        datasource:
+          type: prometheus
+          uid: prometheus
+        targets:
+        - refId: A
+          expr: increase(kube_pod_container_status_restarts_total{project="narx-commerce",environment=~"$environment"}[15m])
+          legendFormat: '{{service}} {{pod}}'
+        fieldConfig:
+          defaults:
+            unit: short
+          overrides: []
+      - id: 11
+        title: JVM heap usage
+        type: timeseries
+        gridPos:
+          x: 0
+          y: 40
+          w: 12
+          h: 8
+        datasource:
+          type: prometheus
+          uid: prometheus
+        targets:
+        - refId: A
+          expr: jvm_memory_used_bytes{project="narx-commerce",environment=~"$environment",area="heap"}
+          legendFormat: '{{service}} {{pod}}'
+        fieldConfig:
+          defaults:
+            unit: bytes
+          overrides: []
+      - id: 12
+        title: Frontend rollout phase
+        type: stat
+        gridPos:
+          x: 12
+          y: 40
+          w: 12
+          h: 8
+        datasource:
+          type: prometheus
+          uid: prometheus
+        targets:
+        - refId: A
+          expr: rollout_info{project="narx-commerce",environment=~"$environment"}
+          legendFormat: '{{phase}}'
+          instant: true
+        fieldConfig:
+          defaults:
+            unit: short
+          overrides: []
+        options:
+          textMode: name
+      - id: 13
+        title: Active Narx alerts
+        type: stat
+        gridPos:
+          x: 0
+          y: 48
+          w: 12
+          h: 8
+        datasource:
+          type: prometheus
+          uid: prometheus
+        targets:
+        - refId: A
+          expr: ALERTS{project="narx-commerce",environment=~"$environment",alertstate="firing"}
+          legendFormat: '{{service}} {{pod}}'
+        fieldConfig:
+          defaults:
+            unit: short
+          overrides: []
+      - id: 14
+        title: Application logs
+        type: logs
+        gridPos:
+          x: 12
+          y: 48
+          w: 12
+          h: 8
+        datasource:
+          type: loki
+          uid: loki
+        targets:
+        - refId: A
+          expr: '{project="narx-commerce",environment=~"$environment"}'
+          legendFormat: '{{service}} {{pod}}'
+        fieldConfig:
+          defaults:
+            unit: short
+          overrides: []
+  egressRules:
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: argocd
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/name: argocd-application-controller
+    ports:
+    - protocol: TCP
+      port: 8082

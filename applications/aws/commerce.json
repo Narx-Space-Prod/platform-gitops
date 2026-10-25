@@ -61,6 +61,22 @@
           {
             "group": "networking.k8s.io",
             "kind": "NetworkPolicy"
+          },
+          {
+            "group": "argoproj.io",
+            "kind": "Rollout"
+          },
+          {
+            "group": "argoproj.io",
+            "kind": "AnalysisTemplate"
+          },
+          {
+            "group": "rbac.authorization.k8s.io",
+            "kind": "Role"
+          },
+          {
+            "group": "rbac.authorization.k8s.io",
+            "kind": "RoleBinding"
           }
         ],
         "orphanedResources": {
@@ -80,7 +96,9 @@
         "annotations": {
           "notifications.argoproj.io/subscribe.narx-pending.github": "",
           "notifications.argoproj.io/subscribe.narx-healthy.github": "",
-          "notifications.argoproj.io/subscribe.narx-failed.github": ""
+          "notifications.argoproj.io/subscribe.narx-failed.github": "",
+          "notifications.argoproj.io/subscribe.narx-slack-deployed.webhook": "slack",
+          "notifications.argoproj.io/subscribe.narx-slack-failed.webhook": "slack"
         }
       },
       "spec": {
@@ -109,7 +127,8 @@
           },
           "syncOptions": [
             "ServerSideApply=true",
-            "PruneLast=true"
+            "PruneLast=true",
+            "RespectIgnoreDifferences=true"
           ],
           "retry": {
             "limit": 3,
@@ -119,7 +138,16 @@
               "maxDuration": "1m"
             }
           }
-        }
+        },
+        "ignoreDifferences": [
+          {
+            "group": "",
+            "kind": "Service",
+            "jqPathExpressions": [
+              ".spec.selector.\"rollouts-pod-template-hash\""
+            ]
+          }
+        ]
       }
     }
   ]
