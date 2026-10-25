@@ -56,7 +56,7 @@ and queue data persist in named volumes. Carts and simulator state are disposabl
 The opt-in test creates throwaway accounts and performs a local SQL role promotion:
 
 ```bash
-NARX_LOCAL_TEST=1 NARX_COMPOSE_PROJECT=narx-commerce python3 -m unittest discover -s tests -v
+NARX_LOCAL_TEST=1 NARX_COMPOSE_PROJECT=narx-commerce python3 -m unittest discover -s tests -p test_local_stack.py -v
 ```
 
 It checks authentication, admin restrictions, INR prices, cart/stock, idempotent checkout,
@@ -77,3 +77,19 @@ evidence, and never executes candidate scripts. Changes without release JSON sti
 receive a successful policy status after the trusted inspection. Deployable release
 changes remain blocked until AWS verification is activated. Main branch protection
 requires this status once its first live PR run has been verified.
+
+## Shared local delivery and monitoring
+
+The local ApplicationSet generates Narx dev/QA Applications in the existing cluster.
+Dev uses Deployments; QA and future production use frontend blue-green Rollouts with
+pre/post functional analysis. Backends retain ordinary rolling updates.
+`monitoring/local-values.yaml` extends the existing shared monitoring chart with Narx
+scrapes, project-scoped dashboards, rules and logs. Alertmanager routes operational
+alerts to Slack; Argo notifications provide one success/failure summary per actual sync.
+Configure those notifications with the infrastructure helper after review. No webhook
+is committed. Empty bootstrap releases do not emit a deployed summary.
+
+Platform tests require Helm and PyYAML 6.0.3; run them separately with
+`python3 -m unittest discover -s tests -p test_platform.py -v`. The opt-in controller
+failure exercise is documented in the single project guide. ECR/App activation is still
+required before the real application can deploy; registering Argo alone does not publish images.

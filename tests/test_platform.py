@@ -104,6 +104,25 @@ class PlatformPolicy(unittest.TestCase):
                 self.assertIn({'target_label':'project','replacement':'narx-commerce'},job['relabel_configs'])
         self.assertIn('narx-argocd',{j['job_name'] for j in jobs})
 
+    def test_slack_summaries_render_valid_payloads_without_exposing_credentials(self):
+        config=json.loads((ROOT/'applications/notifications.json').read_text())['data']
+        self.assertIn('url: $narx-slack-webhook',config['service.webhook.slack'])
+        for event in ['deployed','failed']:
+            trigger=yaml.safe_load(config['trigger.narx-slack-'+event])[0]
+            self.assertEqual(trigger['oncePer'],'app.status.operationState.startedAt')
+            if event=='deployed':self.assertIn('len(app.status.summary.images) > 0',trigger['when'])
+            body=yaml.safe_load(config['template.narx-slack-'+event])['webhook']['slack']['body']
+            with tempfile.TemporaryDirectory() as directory:
+                chart=Path(directory);(chart/'templates').mkdir()
+                (chart/'Chart.yaml').write_text('apiVersion: v2\nname: notification-check\nversion: 0.1.0\n')
+                (chart/'body.txt').write_text(body)
+                (chart/'templates/config.yaml').write_text('apiVersion: v1\nkind: ConfigMap\nmetadata: {name: notification-check}\ndata:\n  message: {{ tpl (.Files.Get "body.txt") .Values | quote }}\n')
+                (chart/'values.yaml').write_text(yaml.safe_dump({'app':{'metadata':{'name':'narx-commerce-qa','labels':{'delivery.narx.space/environment':'qa'}},'status':{'sync':{'revision':'a'*40}}}}))
+                rendered=yaml.safe_load(subprocess.check_output(['helm','template','message',str(chart)],text=True))
+                message=json.loads(rendered['data']['message'])['text']
+                self.assertIn('Narx qa',message)
+                self.assertNotIn('webhook',message)
+
     def test_dashboard_and_alert_queries_are_project_scoped(self):
         for dashboard in self.monitoring['dashboards'].values():
             for panel in dashboard['panels']:

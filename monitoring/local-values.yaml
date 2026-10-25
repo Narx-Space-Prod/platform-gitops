@@ -330,16 +330,6 @@ integration:
         summary: Narx frontend rollout is degraded; inspect analysis and the rollback
           PR
         runbook_url: https://github.com/Narx-Space-Prod/platform-infrastructure/blob/main/DOC.md#local-monitoring-and-progressive-delivery
-    - alert: NarxAnalysisFailed
-      expr: analysis_run_info{project="narx-commerce",phase=~"Failed|Error"} == 1
-      for: 1m
-      labels:
-        project: narx-commerce
-        severity: critical
-        service: frontend
-      annotations:
-        summary: Narx frontend analysis failed; stable traffic must be checked
-        runbook_url: https://github.com/Narx-Space-Prod/platform-infrastructure/blob/main/DOC.md#local-monitoring-and-progressive-delivery
     - alert: NarxArgoApplicationDegraded
       expr: argocd_app_info{project="narx-commerce",health_status=~"Degraded|Missing|Unknown"}
         == 1

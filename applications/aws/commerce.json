@@ -96,7 +96,9 @@
         "annotations": {
           "notifications.argoproj.io/subscribe.narx-pending.github": "",
           "notifications.argoproj.io/subscribe.narx-healthy.github": "",
-          "notifications.argoproj.io/subscribe.narx-failed.github": ""
+          "notifications.argoproj.io/subscribe.narx-failed.github": "",
+          "notifications.argoproj.io/subscribe.narx-slack-deployed.webhook": "slack",
+          "notifications.argoproj.io/subscribe.narx-slack-failed.webhook": "slack"
         }
       },
       "spec": {
