@@ -1,0 +1,40 @@
+rule_files: [/work/rules.yml]
+evaluation_interval: 1m
+tests:
+  - name: Alert on a sustained Narx backlog, excluding the other project
+    interval: 1m
+    input_series:
+      - series: 'commerce_outbox_oldest_seconds{project="narx-commerce",environment="qa",role="publisher",service="publisher"}'
+        values: '300x10'
+      - series: 'commerce_outbox_oldest_seconds{project="boutique",environment="qa",role="publisher",service="publisher"}'
+        values: '900x10'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: NarxOutboxStalled
+        exp_alerts:
+          - exp_labels: {project: narx-commerce, environment: qa, role: publisher, service: publisher, severity: critical}
+            exp_annotations:
+              summary: Narx paid order events have waited over two minutes
+              runbook_url: https://github.com/Narx-Space-Prod/platform-infrastructure/blob/main/DOC.md#local-monitoring-and-progressive-delivery
+  - name: Tiny synthetic traffic must not cause a percentage-only error alert
+    interval: 1m
+    input_series:
+      - series: 'boutique_http_requests_total{project="narx-commerce",environment="qa",service="frontend",status="500"}'
+        values: '0+1x15'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: NarxHTTPErrorRate
+        exp_alerts: []
+  - name: Degraded frontend delivery alerts even if stable traffic was restored
+    interval: 1m
+    input_series:
+      - series: 'rollout_info{project="narx-commerce",environment="qa",phase="Degraded",name="commerce-frontend"}'
+        values: '1x10'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: NarxRolloutDegraded
+        exp_alerts:
+          - exp_labels: {project: narx-commerce, environment: qa, phase: Degraded, name: commerce-frontend, service: frontend, severity: critical}
+            exp_annotations:
+              summary: Narx frontend rollout is degraded; inspect analysis and the rollback PR
+              runbook_url: https://github.com/Narx-Space-Prod/platform-infrastructure/blob/main/DOC.md#local-monitoring-and-progressive-delivery

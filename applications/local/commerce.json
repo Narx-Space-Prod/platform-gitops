@@ -65,6 +65,22 @@
           {
             "group": "networking.k8s.io",
             "kind": "NetworkPolicy"
+          },
+          {
+            "group": "argoproj.io",
+            "kind": "Rollout"
+          },
+          {
+            "group": "argoproj.io",
+            "kind": "AnalysisTemplate"
+          },
+          {
+            "group": "rbac.authorization.k8s.io",
+            "kind": "Role"
+          },
+          {
+            "group": "rbac.authorization.k8s.io",
+            "kind": "RoleBinding"
           }
         ],
         "orphanedResources": {
@@ -74,109 +90,94 @@
     },
     {
       "apiVersion": "argoproj.io/v1alpha1",
-      "kind": "Application",
+      "kind": "ApplicationSet",
       "metadata": {
-        "name": "narx-commerce-dev",
-        "namespace": "argocd",
-        "labels": {
-          "delivery.narx.space/environment": "dev"
-        },
-        "annotations": {
-          "notifications.argoproj.io/subscribe.narx-pending.github": "",
-          "notifications.argoproj.io/subscribe.narx-healthy.github": "",
-          "notifications.argoproj.io/subscribe.narx-failed.github": ""
-        }
+        "name": "narx-commerce-local",
+        "namespace": "argocd"
       },
       "spec": {
-        "project": "narx-commerce-local",
-        "source": {
-          "repoURL": "https://github.com/Narx-Space-Prod/platform-gitops.git",
-          "targetRevision": "main",
-          "path": "charts/commerce",
-          "helm": {
-            "releaseName": "commerce",
-            "valueFiles": [
-              "../../environments/dev/runtime.yaml",
-              "../../environments/dev/release.json"
+        "goTemplate": true,
+        "goTemplateOptions": [
+          "missingkey=error"
+        ],
+        "generators": [
+          {
+            "list": {
+              "elements": [
+                {
+                  "environment": "dev"
+                },
+                {
+                  "environment": "qa"
+                }
+              ]
+            }
+          }
+        ],
+        "template": {
+          "metadata": {
+            "name": "narx-commerce-{{.environment}}",
+            "labels": {
+              "delivery.narx.space/environment": "{{.environment}}"
+            },
+            "annotations": {
+              "notifications.argoproj.io/subscribe.narx-pending.github": "",
+              "notifications.argoproj.io/subscribe.narx-healthy.github": "",
+              "notifications.argoproj.io/subscribe.narx-failed.github": ""
+            }
+          },
+          "spec": {
+            "project": "narx-commerce-local",
+            "source": {
+              "repoURL": "https://github.com/Narx-Space-Prod/platform-gitops.git",
+              "targetRevision": "main",
+              "path": "charts/commerce",
+              "helm": {
+                "releaseName": "commerce",
+                "valueFiles": [
+                  "../../environments/{{.environment}}/runtime.yaml",
+                  "../../environments/{{.environment}}/release.json"
+                ]
+              }
+            },
+            "destination": {
+              "server": "https://kubernetes.default.svc",
+              "namespace": "commerce-{{.environment}}"
+            },
+            "syncPolicy": {
+              "automated": {
+                "prune": true,
+                "selfHeal": true,
+                "allowEmpty": false
+              },
+              "syncOptions": [
+                "ServerSideApply=true",
+                "PruneLast=true",
+                "RespectIgnoreDifferences=true"
+              ],
+              "retry": {
+                "limit": 3,
+                "backoff": {
+                  "duration": "10s",
+                  "factor": 2,
+                  "maxDuration": "1m"
+                }
+              }
+            },
+            "ignoreDifferences": [
+              {
+                "group": "",
+                "kind": "Service",
+                "jqPathExpressions": [
+                  ".spec.selector.\"rollouts-pod-template-hash\""
+                ]
+              }
             ]
           }
         },
-        "destination": {
-          "server": "https://kubernetes.default.svc",
-          "namespace": "commerce-dev"
-        },
         "syncPolicy": {
-          "automated": {
-            "prune": true,
-            "selfHeal": true,
-            "allowEmpty": false
-          },
-          "syncOptions": [
-            "ServerSideApply=true",
-            "PruneLast=true"
-          ],
-          "retry": {
-            "limit": 3,
-            "backoff": {
-              "duration": "10s",
-              "factor": 2,
-              "maxDuration": "1m"
-            }
-          }
-        }
-      }
-    },
-    {
-      "apiVersion": "argoproj.io/v1alpha1",
-      "kind": "Application",
-      "metadata": {
-        "name": "narx-commerce-qa",
-        "namespace": "argocd",
-        "labels": {
-          "delivery.narx.space/environment": "qa"
-        },
-        "annotations": {
-          "notifications.argoproj.io/subscribe.narx-pending.github": "",
-          "notifications.argoproj.io/subscribe.narx-healthy.github": "",
-          "notifications.argoproj.io/subscribe.narx-failed.github": ""
-        }
-      },
-      "spec": {
-        "project": "narx-commerce-local",
-        "source": {
-          "repoURL": "https://github.com/Narx-Space-Prod/platform-gitops.git",
-          "targetRevision": "main",
-          "path": "charts/commerce",
-          "helm": {
-            "releaseName": "commerce",
-            "valueFiles": [
-              "../../environments/qa/runtime.yaml",
-              "../../environments/qa/release.json"
-            ]
-          }
-        },
-        "destination": {
-          "server": "https://kubernetes.default.svc",
-          "namespace": "commerce-qa"
-        },
-        "syncPolicy": {
-          "automated": {
-            "prune": true,
-            "selfHeal": true,
-            "allowEmpty": false
-          },
-          "syncOptions": [
-            "ServerSideApply=true",
-            "PruneLast=true"
-          ],
-          "retry": {
-            "limit": 3,
-            "backoff": {
-              "duration": "10s",
-              "factor": 2,
-              "maxDuration": "1m"
-            }
-          }
+          "applicationsSync": "create-update",
+          "preserveResourcesOnDeletion": true
         }
       }
     }

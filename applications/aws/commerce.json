@@ -61,6 +61,22 @@
           {
             "group": "networking.k8s.io",
             "kind": "NetworkPolicy"
+          },
+          {
+            "group": "argoproj.io",
+            "kind": "Rollout"
+          },
+          {
+            "group": "argoproj.io",
+            "kind": "AnalysisTemplate"
+          },
+          {
+            "group": "rbac.authorization.k8s.io",
+            "kind": "Role"
+          },
+          {
+            "group": "rbac.authorization.k8s.io",
+            "kind": "RoleBinding"
           }
         ],
         "orphanedResources": {
@@ -109,7 +125,8 @@
           },
           "syncOptions": [
             "ServerSideApply=true",
-            "PruneLast=true"
+            "PruneLast=true",
+            "RespectIgnoreDifferences=true"
           ],
           "retry": {
             "limit": 3,
@@ -119,7 +136,16 @@
               "maxDuration": "1m"
             }
           }
-        }
+        },
+        "ignoreDifferences": [
+          {
+            "group": "",
+            "kind": "Service",
+            "jqPathExpressions": [
+              ".spec.selector.\"rollouts-pod-template-hash\""
+            ]
+          }
+        ]
       }
     }
   ]

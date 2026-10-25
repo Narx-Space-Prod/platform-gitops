@@ -13,3 +13,20 @@ spec:
       port: {{ .Values.service.port }}
       targetPort: http
 {{- end }}
+
+{{- if and .Values.service.enabled .Values.progressive.enabled }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "commerce-service.fullname" . }}-preview
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ include "commerce-service.fullname" . }}
+  ports:
+    - name: http
+      port: {{ .Values.service.port }}
+      targetPort: http
+{{- end }}

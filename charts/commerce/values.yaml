@@ -84,3 +84,8 @@ worker:
     - {name: DELIVERY_LOCAL, valueFrom: {configMapKeyRef: {name: commerce-settings, key: DELIVERY_LOCAL}}}
     - {name: DELIVERY_ENDPOINT, valueFrom: {configMapKeyRef: {name: commerce-settings, key: DELIVERY_ENDPOINT}}}
     - {name: AWS_REGION, valueFrom: {configMapKeyRef: {name: commerce-settings, key: AWS_REGION}}}
+
+rolloutsController:
+  enabled: false
+  apiServerCIDRs: []
+  image: quay.io/argoproj/argo-rollouts@sha256:fbcc4cf0a29da25d86230992b1dfdeadf30b6f1baa74ea7c9c98e3e580769396

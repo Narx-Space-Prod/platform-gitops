@@ -1,0 +1,9 @@
+{
+  "version": "v1.10.1",
+  "source": "https://github.com/argoproj/argo-rollouts/releases/tag/v1.10.1",
+  "assets": {
+    "install.yaml": "149148429a6f8258b789003ffb9bc6698a526d611ecb1b185624217cf51bae7f",
+    "namespace-install.yaml": "4351d54af7aa295b5335ada1ba6d3ee9d93314fa78d72961acb8e38fb5dc9721"
+  },
+  "controllerImage": "quay.io/argoproj/argo-rollouts@sha256:fbcc4cf0a29da25d86230992b1dfdeadf30b6f1baa74ea7c9c98e3e580769396"
+}
