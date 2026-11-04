@@ -29,15 +29,15 @@ or add worker-node capacity automatically.
 are present. Validation injects a dummy image into rendered output; it is never committed as a release.
 `environments/*/runtime.yaml` configures the complete stack; `release.json` is the
 canonical image bundle, initially non-deployable. `applications/local/commerce.json`
-registers dev/QA only after operator bootstrap; `applications/aws/commerce.json` targets
-the future registered EKS cluster. `applications/notifications.json` is a data-only
+registers dev/QA/production on the dedicated `narx-local` cluster after operator bootstrap.
+Argo CD remains on the existing management cluster; AWS production manifests are retired. `applications/notifications.json` is a data-only
 merge patch, not a standalone manifest; use the infrastructure helper to install it.
 
 The reconciler verifies signed main-build records before proposing release/promotion
 PRs. The trusted candidate verifier never executes PR code. Dev, QA and production
 all retain human review. Failed QA/production rollouts can propose reviewed rollback
 PRs; persistent data and SQL migrations are not rolled back. See DOC.md for exact App,
-OIDC, credential-refresh and activation steps. No new Argo Applications are live yet.
+OIDC, credential-refresh and activation steps. Existing dev/QA Applications currently have no runtime workloads; retargeting requires reviewed operator activation.
 
 ## Local preview and integration tests
 
@@ -78,18 +78,24 @@ receive a successful policy status after the trusted inspection. Deployable rele
 changes remain blocked until AWS verification is activated. Main branch protection
 requires this status once its first live PR run has been verified.
 
-## Shared local delivery and monitoring
+## Dedicated local cluster and shared Argo CD
 
-The local ApplicationSet generates Narx dev/QA Applications in the existing cluster.
-Dev uses Deployments; QA and future production use frontend blue-green Rollouts with
-pre/post functional analysis. Backends retain ordinary rolling updates.
-`monitoring/local-values.yaml` extends the existing shared monitoring chart with Narx
-scrapes, project-scoped dashboards, rules and logs. Alertmanager routes operational
-alerts to Slack; Argo notifications provide one success/failure summary per actual sync.
-Configure those notifications with the infrastructure helper after review. No webhook
-is committed. Empty bootstrap releases do not emit a deployed summary.
+The local ApplicationSet generates dev/QA/production Applications in `narx-local`,
+restricted by a dedicated AppProject to this repository and three commerce namespaces.
+Only Argo CD is shared with the older Boutique project. See the infrastructure guide
+for kind creation, namespace bootstrap, scoped cluster registration and CRD installation.
+The destination manifest is operator-applied; merging does not retarget live Applications.
 
-Platform tests require Helm and PyYAML 6.0.3; run them separately with
-`python3 -m unittest discover -s tests -p test_platform.py -v`. The opt-in controller
-failure exercise is documented in the single project guide. ECR/App activation is still
-required before the real application can deploy; registering Argo alone does not publish images.
+Production now uses local PostgreSQL, Redis and ElasticMQ with no AWS Pod Identity.
+Its frontend keeps two replicas and blue-green Rollouts; backends use the chart's
+single-replica defaults for laptop capacity. HTTP/loopback preview is a lab access mode.
+The retired AWS Application must not also manage `commerce-production`.
+
+`monitoring/local-values.yaml` is retained from the earlier shared monitoring integration.
+An independent Narx monitoring deployment and removal of the old Boutique integration
+remain pending. Do not apply Boutique's monitoring Application as Narx bootstrap.
+
+Real runtime activation is still blocked: publishing/verification remain ECR-specific
+and disabled, pending reviewed GHCR migration and release/observer App setup. Empty
+release files are not working app deployments. Existing policy and platform tests remain
+part of CI; no mutable or fictional images should be committed to activate the stack.

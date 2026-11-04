@@ -10,18 +10,22 @@
         "namespace": "argocd"
       },
       "spec": {
-        "description": "Narx commerce local delivery; no cluster-wide resource permissions",
+        "description": "Narx workloads on a dedicated local cluster; shared Argo CD control plane only",
         "sourceRepos": [
           "https://github.com/Narx-Space-Prod/platform-gitops.git"
         ],
         "destinations": [
           {
-            "server": "https://kubernetes.default.svc",
+            "name": "narx-local",
             "namespace": "commerce-dev"
           },
           {
-            "server": "https://kubernetes.default.svc",
+            "name": "narx-local",
             "namespace": "commerce-qa"
+          },
+          {
+            "name": "narx-local",
+            "namespace": "commerce-production"
           }
         ],
         "clusterResourceWhitelist": [],
@@ -109,6 +113,9 @@
                 },
                 {
                   "environment": "qa"
+                },
+                {
+                  "environment": "production"
                 }
               ]
             }
@@ -143,7 +150,7 @@
               }
             },
             "destination": {
-              "server": "https://kubernetes.default.svc",
+              "name": "narx-local",
               "namespace": "commerce-{{.environment}}"
             },
             "syncPolicy": {

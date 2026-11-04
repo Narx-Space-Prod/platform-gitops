@@ -33,20 +33,20 @@ class PlatformPolicy(unittest.TestCase):
 
     def objects(self,env,kind):return [d for d in self.rendered[env] if d['kind']==kind]
 
-    def test_application_set_is_bounded_to_two_local_environments(self):
+    def test_application_set_is_bounded_to_dedicated_local_cluster(self):
         resources=json.loads((ROOT/'applications/local/commerce.json').read_text())['items']
         self.assertEqual([r['kind'] for r in resources],['AppProject','ApplicationSet'])
         spec=resources[1]['spec']
-        self.assertEqual(spec['generators'],[{'list':{'elements':[{'environment':'dev'},{'environment':'qa'}]}}])
+        self.assertEqual(spec['generators'],[{'list':{'elements':[{'environment':'dev'},{'environment':'qa'},{'environment':'production'}]}}])
         self.assertEqual(spec['goTemplateOptions'],['missingkey=error'])
         self.assertTrue(spec['syncPolicy']['preserveResourcesOnDeletion'])
         self.assertEqual(spec['syncPolicy']['applicationsSync'],'create-update')
         self.assertNotIn('apiVersion',spec['template'])
-        self.assertEqual(spec['template']['spec']['destination']['server'],'https://kubernetes.default.svc')
+        self.assertEqual(spec['template']['spec']['destination'],{'name':'narx-local','namespace':'commerce-{{.environment}}'})
+        self.assertEqual(resources[0]['spec']['destinations'],[{'name':'narx-local','namespace':'commerce-'+e} for e in ['dev','qa','production']])
         self.assertIn('RespectIgnoreDifferences=true',spec['template']['spec']['syncPolicy']['syncOptions'])
         self.assertEqual(resources[0]['spec']['clusterResourceWhitelist'],[])
-        cloud=json.loads((ROOT/'applications/aws/commerce.json').read_text())['items'][1]
-        self.assertEqual(cloud['spec']['destination'],{'name':'narx-production','namespace':'commerce-production'})
+        self.assertFalse((ROOT/'applications/aws/commerce.json').exists())
 
     def test_dev_stays_simple_and_only_frontend_uses_progressive_delivery(self):
         self.assertFalse(self.objects('dev','Rollout'))
@@ -66,6 +66,27 @@ class PlatformPolicy(unittest.TestCase):
             self.assertGreaterEqual(bg['scaleDownDelaySeconds'],job['activeDeadlineSeconds']+30)
             self.assertEqual(job['backoffLimit'],0)
             self.assertFalse(job['template']['spec']['automountServiceAccountToken'])
+
+    def test_local_production_uses_its_own_data_without_cloud_identity(self):
+        prod=yaml.safe_load((ROOT/'environments/production/runtime.yaml').read_text())
+        self.assertTrue(prod['localData']['enabled'])
+        self.assertFalse(prod['podIdentity']['enabled'])
+        self.assertEqual(prod['frontend']['replicaCount'],2)
+        claims=[claim for resource in self.objects('production','StatefulSet')
+                for claim in resource['spec'].get('volumeClaimTemplates',[])]
+        self.assertTrue(claims)
+        for resource in self.objects('production','ServiceAccount'):
+            self.assertNotIn('eks.amazonaws.com/role-arn',resource['metadata'].get('annotations',{}))
+
+    def test_managed_data_still_requires_secure_configuration(self):
+        with tempfile.TemporaryDirectory() as directory:
+            fixture=Path(directory)/'release.json'
+            subprocess.run(['python3',str(ROOT/'scripts/delivery.py'),'fixtures',str(fixture)],check=True)
+            result=subprocess.run(['helm','template','commerce',str(ROOT/'charts/commerce'),
+                '-f',str(ROOT/'environments/production/runtime.yaml'),'-f',str(fixture),
+                '--set','localData.enabled=false'],text=True,capture_output=True)
+        self.assertNotEqual(result.returncode,0)
+        self.assertIn('managed-data deployments require HTTPS',result.stderr)
 
     def test_application_and_analysis_images_remain_the_verified_bundle(self):
         for env in self.rendered:

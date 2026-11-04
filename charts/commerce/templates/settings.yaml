@@ -1,10 +1,7 @@
 {{- if .Values.release.ready }}
-{{- if and (eq .Values.environment "production") .Values.localData.enabled }}
-{{- fail "production must use managed data services; localData is not permitted" }}
-{{- end }}
-{{- if eq .Values.environment "production" }}
+{{- if not .Values.localData.enabled }}
 {{- if or (not (hasPrefix "https://" .Values.publicOrigin)) (empty .Values.awsRegion) (not .Values.cookieSecure) (empty .Values.externalDataCIDRs) }}
-{{- fail "production requires HTTPS origin, AWS region, secure cookies and private data CIDRs" }}
+{{- fail "managed-data deployments require HTTPS origin, AWS region, secure cookies and private data CIDRs" }}
 {{- end }}
 {{- end }}
 apiVersion: v1

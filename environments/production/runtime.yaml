@@ -1,21 +1,17 @@
-global:
-  imagePullSecrets: []
-podIdentity: {enabled: true}
-# Populate reviewed VPC/subnet CIDRs for RDS and the chosen Redis endpoint.
-externalDataCIDRs: []
+# Local production exercise. The same verified release is promoted from QA.
 environment: production
-publicOrigin: ""
-cookieSecure: true
-awsRegion: ""
-localData: {enabled: false}
-catalogue: &capacity
-  replicaCount: 2
-  podDisruptionBudget: {enabled: true, minAvailable: 1}
+publicOrigin: http://localhost:18082
+cookieSecure: false
+podIdentity: {enabled: false}
+externalDataCIDRs: []
+awsRegion: us-east-1
+localData:
+  enabled: true
+  storageClass: standard
 frontend:
-  <<: *capacity
+  replicaCount: 2
   progressive: {enabled: true}
-cart: *capacity
-orders: *capacity
-publisher: *capacity
-worker: *capacity
-rolloutsController: {enabled: true}
+  podDisruptionBudget: {enabled: true, minAvailable: 1}
+rolloutsController:
+  enabled: true
+  apiServerCIDRs: [10.96.0.1/32, 172.18.0.0/16]
