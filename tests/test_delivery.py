@@ -16,7 +16,7 @@ import delivery as d
 class DeliveryPolicy(unittest.TestCase):
     def setUp(self):
         self.facts = {name: {'component': name, 'repository': 'Narx-Space-Prod/' + repo,
-            'image': '123456789012.dkr.ecr.us-east-1.amazonaws.com/narx/commerce-' + name,
+            'image': 'ghcr.io/narx-space-prod/commerce-' + name,
             'digest': 'sha256:' + 'a' * 64, 'commit': 'b' * 40, 'runId': 12}
             for name, repo in d.COMPONENTS.items()}
 
@@ -30,6 +30,9 @@ class DeliveryPolicy(unittest.TestCase):
 
     def test_mutable_unrelated_and_tampered_image_identities_are_rejected(self):
         for field, value in [('digest', 'latest'), ('image', 'docker.io/attacker/orders'),
+                             ('image','ghcr.io/attacker/commerce-orders'),
+                             ('image','ghcr.io/narx-space-prod/commerce-frontend'),
+                             ('image','123456789012.dkr.ecr.us-east-1.amazonaws.com/narx/commerce-orders'),
                              ('repository', 'other/commerce-orders'), ('commit', 'main'), ('runId', True)]:
             fact = dict(self.facts['orders'], **{field: value})
             with self.subTest(field=field), self.assertRaises(ValueError):

@@ -1,5 +1,5 @@
 global:
-  imagePullSecrets: [{name: ecr-pull}]
+  imagePullSecrets: [{name: ghcr-pull}]
 externalDataCIDRs: []
 podIdentity: {enabled: false}
 environment: dev

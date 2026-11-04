@@ -17,7 +17,7 @@ jobs:
       contents: read
       pull-requests: read
       statuses: write
-      id-token: write
+      packages: read
     steps:
       # SECURITY: checkout only the reviewed base commit. Never checkout, import or execute candidate code.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -61,7 +61,7 @@ jobs:
           with open(os.environ['GITHUB_OUTPUT'],'a') as output:
               output.write('changed=' + str(bool(candidates)).lower() + '\n')
           PY
-      - name: Require configured AWS verification for deployable release changes
+      - name: Require activated GHCR verification for deployable release changes
         if: steps.candidate.outputs.changed == 'true'
         env:
           DELIVERY_ENABLED: ${{ vars.DELIVERY_ENABLED }}
@@ -72,17 +72,16 @@ jobs:
           for candidate in json.loads(Path(os.environ['RUNNER_TEMP'],'candidates.json').read_text()):
               value=json.loads(Path(candidate['path']).read_text())
               if value.get('release',{}).get('ready') and os.environ['DELIVERY_ENABLED'] != 'true':
-                  raise SystemExit('Deployable release is blocked until AWS verification is activated')
+                  raise SystemExit('Deployable release is blocked until GHCR verification is activated')
           PY
-      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+      - name: Authenticate read-only GHCR verification
         if: steps.candidate.outputs.changed == 'true' && vars.DELIVERY_ENABLED == 'true'
-        with:
-          role-to-assume: ${{ vars.AWS_VERIFICATION_ROLE_ARN }}
-          aws-region: ${{ vars.AWS_REGION }}
-          allowed-account-ids: ${{ vars.AWS_ACCOUNT_ID }}
-          role-duration-seconds: 900
-      - uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd # v2.1.7
-        if: steps.candidate.outputs.changed == 'true' && vars.DELIVERY_ENABLED == 'true'
+        env:
+          REGISTRY_TOKEN: ${{ github.token }}
+        run: |
+          export DOCKER_CONFIG="$RUNNER_TEMP/narx-docker-verify"
+          printf 'DOCKER_CONFIG=%s\n' "$DOCKER_CONFIG" >> "$GITHUB_ENV"
+          printf '%s' "$REGISTRY_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
       - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
         if: steps.candidate.outputs.changed == 'true' && vars.DELIVERY_ENABLED == 'true'
         with:
@@ -91,8 +90,6 @@ jobs:
         if: steps.candidate.outputs.changed == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-          AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
-          AWS_REGION: ${{ vars.AWS_REGION }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           NARX_DEPLOYMENT_BOT_LOGIN: ${{ vars.NARX_DEPLOYMENT_BOT_LOGIN }}
         run: |
@@ -113,3 +110,6 @@ jobs:
           if [ "$RESULT" = success ]; then state=success; fi
           gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$HEAD_SHA" \
             -f "state=$state" -f context=narx/release-verification -f description='Trusted immutable release validation'
+      - name: Remove temporary registry login
+        if: always()
+        run: if [ -n "${DOCKER_CONFIG:-}" ]; then rm -rf "$DOCKER_CONFIG"; fi

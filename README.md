@@ -2,7 +2,7 @@
 
 Owner: Platform/release.
 
-Desired deployment state for dev, QA and production, including application releases and platform add-ons. A shared service chart and commerce umbrella chart provide digest-only deployment. Argo Applications and release automation are prepared; registration and AWS publishing remain disabled.
+Desired deployment state for dev, QA and production, including application releases and platform add-ons. A shared service chart and commerce umbrella chart provide digest-only deployment. Argo Applications and release automation are prepared; registration and GHCR publishing remain disabled.
 
 Project guide: [DOC.md](https://github.com/Narx-Space-Prod/platform-infrastructure/blob/main/DOC.md).
 
@@ -75,7 +75,7 @@ Real AWS queue policies, IAM, monitoring alarms and production redrive remain pe
 workflow. It fetches candidate release JSON as data, verifies source and environment
 evidence, and never executes candidate scripts. Changes without release JSON still
 receive a successful policy status after the trusted inspection. Deployable release
-changes remain blocked until AWS verification is activated. Main branch protection
+changes remain blocked until GHCR verification is activated. Main branch protection
 requires this status once its first live PR run has been verified.
 
 ## Dedicated local cluster and shared Argo CD
@@ -95,7 +95,21 @@ The retired AWS Application must not also manage `commerce-production`.
 An independent Narx monitoring deployment and removal of the old Boutique integration
 remain pending. Do not apply Boutique's monitoring Application as Narx bootstrap.
 
-Real runtime activation is still blocked: publishing/verification remain ECR-specific
-and disabled, pending reviewed GHCR migration and release/observer App setup. Empty
+Real runtime activation is still blocked: publishing/verification use GHCR and remain disabled pending shared builder pinning,
+package access and release/observer App setup. Empty
 release files are not working app deployments. Existing policy and platform tests remain
 part of CI; no mutable or fictional images should be committed to activate the stack.
+
+## GHCR activation
+
+Release facts accept only `ghcr.io/narx-space-prod/commerce-COMPONENT` with a digest.
+Verification binds the signed digest, source repository/main commit, successful caller
+CI and an explicitly reviewed shared builder SHA; promotion does not rebuild images.
+Registry authentication uses GitHub's ephemeral token with packages:read, not AWS roles.
+Private packages must grant this GitOps repository Actions read access, and the cluster
+needs its own ghcr-pull secret. The infrastructure helper provisions that separately.
+For explicitly public images, override global.imagePullSecrets to an empty list.
+
+Merge the shared publisher first and update policy/builders.json to its reviewed main
+SHA before activating delivery. Existing ECR release facts are rejected; current states
+are empty bootstraps, so no live ECR releases require migration.
