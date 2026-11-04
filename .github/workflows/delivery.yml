@@ -30,7 +30,7 @@ jobs:
     if: vars.DELIVERY_ENABLED == 'true' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
-    environment: registry-verification
+    environment: gitops-release
     permissions:
       contents: read
       packages: read
