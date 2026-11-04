@@ -111,3 +111,9 @@ needs its own ghcr-pull secret. The infrastructure helper provisions that separa
 The shared publisher is merged at ba41b7532a626ba47e9bf7b74ba56c4a6808228a;
 policy/builders.json trusts that reviewed revision. Service callers must pin it before activation. Existing ECR release facts are rejected; current states
 are empty bootstraps, so no live ECR releases require migration.
+
+Release App credentials belong in the main-only gitops-release environment. Read-only
+trusted PR verification uses only its ephemeral packages:read token; it does not bind
+the release-key environment or execute candidate scripts. Remove repository-level App
+key copies after the reviewed workflow/caller cutover so branch workflows cannot read
+them. Empty bootstrap Applications cannot report a successful deployed-image status.
