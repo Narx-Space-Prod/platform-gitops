@@ -53,10 +53,7 @@ def facts_valid(fact, component=None):
     require(isinstance(fact['commit'], str) and re.fullmatch('[a-f0-9]{40}', fact['commit']), 'invalid source commit')
     require(type(fact['runId']) is int and fact['runId'] > 0, 'invalid workflow run')
     require(isinstance(fact['digest'], str) and re.fullmatch('sha256:[a-f0-9]{64}', fact['digest']), 'mutable or invalid digest')
-    require(isinstance(fact['image'], str) and re.fullmatch(r'[0-9]{12}\.dkr\.ecr\.[a-z]{2}-[a-z]+-[0-9]+\.amazonaws\.com/narx/commerce-' + name, fact['image']), 'unexpected registry or image')
-    account, region = os.environ.get('AWS_ACCOUNT_ID'), os.environ.get('AWS_REGION')
-    if account and region:
-        require(fact['image'].startswith(f'{account}.dkr.ecr.{region}.amazonaws.com/'), 'image belongs to another AWS account/region')
+    require(fact['image'] == 'ghcr.io/narx-space-prod/commerce-' + name, 'unexpected registry or image')
     return fact
 
 
@@ -298,7 +295,7 @@ def verify_candidate(value, environment, revision, states):
 
 
 def fixtures(path):
-    facts = {name: {'component': name, 'image': '123456789012.dkr.ecr.us-east-1.amazonaws.com/narx/commerce-' + name,
+    facts = {name: {'component': name, 'image': 'ghcr.io/narx-space-prod/commerce-' + name,
                     'digest': 'sha256:' + '0' * 64, 'repository': 'Narx-Space-Prod/' + repo,
                     'commit': '1' * 40, 'runId': 1} for name, repo in COMPONENTS.items()}
     write(path, bundle(facts))
