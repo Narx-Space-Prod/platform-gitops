@@ -88,7 +88,19 @@
           }
         ],
         "orphanedResources": {
-          "warn": true
+          "warn": true,
+          "ignore": [
+            {
+              "group": "rbac.authorization.k8s.io",
+              "kind": "Role",
+              "name": "narx-argocd-manager"
+            },
+            {
+              "group": "rbac.authorization.k8s.io",
+              "kind": "RoleBinding",
+              "name": "narx-argocd-manager"
+            }
+          ]
         }
       }
     },
