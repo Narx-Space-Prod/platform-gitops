@@ -95,8 +95,7 @@ The retired AWS Application must not also manage `commerce-production`.
 An independent Narx monitoring deployment and removal of the old Boutique integration
 remain pending. Do not apply Boutique's monitoring Application as Narx bootstrap.
 
-Real runtime activation is still blocked: publishing/verification use GHCR and remain disabled pending shared builder pinning,
-package access and release/observer App setup. Empty
+Real runtime activation is still blocked: publishing/verification use GHCR and remain disabled pending service caller merges, private package access and release/observer App setup. Empty
 release files are not working app deployments. Existing policy and platform tests remain
 part of CI; no mutable or fictional images should be committed to activate the stack.
 
@@ -108,8 +107,7 @@ CI and an explicitly reviewed shared builder SHA; promotion does not rebuild ima
 Registry authentication uses GitHub's ephemeral token with packages:read, not AWS roles.
 Private packages must grant this GitOps repository Actions read access, and the cluster
 needs its own ghcr-pull secret. The infrastructure helper provisions that separately.
-For explicitly public images, override global.imagePullSecrets to an empty list.
 
-Merge the shared publisher first and update policy/builders.json to its reviewed main
-SHA before activating delivery. Existing ECR release facts are rejected; current states
+The shared publisher is merged at ba41b7532a626ba47e9bf7b74ba56c4a6808228a;
+policy/builders.json trusts that reviewed revision. Service callers must pin it before activation. Existing ECR release facts are rejected; current states
 are empty bootstraps, so no live ECR releases require migration.
