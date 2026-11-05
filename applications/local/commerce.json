@@ -192,6 +192,22 @@
                 "jqPathExpressions": [
                   ".spec.selector.\"rollouts-pod-template-hash\""
                 ]
+              },
+              {
+                "group": "apps",
+                "kind": "StatefulSet",
+                "name": "commerce-postgres",
+                "jqPathExpressions": [
+                  ".spec.volumeClaimTemplates[].status"
+                ]
+              },
+              {
+                "group": "apps",
+                "kind": "StatefulSet",
+                "name": "elasticmq",
+                "jqPathExpressions": [
+                  ".spec.volumeClaimTemplates[].status"
+                ]
               }
             ]
           }
