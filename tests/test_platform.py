@@ -53,6 +53,7 @@ class PlatformPolicy(unittest.TestCase):
         for env in ('qa', 'production'):
             policies=self.objects(env, 'CiliumNetworkPolicy')
             self.assertEqual(len(policies), 1)
+            self.assertEqual(policies[0]['metadata']['annotations']['argocd.argoproj.io/sync-wave'], '-2')
             spec=policies[0]['spec']
             self.assertEqual(spec['endpointSelector']['matchLabels'],
                              {'app.kubernetes.io/name':'narx-rollouts'})
