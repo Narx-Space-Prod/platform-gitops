@@ -1,2 +1,7 @@
-# Review ownership enforced by main branch protection.
+# Code, policy, pipelines and production releases require code-owner review.
 * @Narx-Space-Prod/code-reviewers
+
+# Exact immutable release files are verified by the trusted release-policy check.
+# Empty owners allow these two paths to merge after required checks without review.
+/environments/dev/release.json
+/environments/qa/release.json

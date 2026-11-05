@@ -119,3 +119,18 @@ key copies after the reviewed workflow/caller cutover so branch workflows cannot
 them. Empty bootstrap Applications cannot report a successful deployed-image status.
 
 Local QA and production use a namespaced CiliumNetworkPolicy to let only the Rollouts controller reach the kube-apiserver identity on TCP 443/6443. CIDR policies do not select node-hosted API endpoints under Cilium defaults. The existing CI custom-resource schema lookup is schemas/argo; ciliumnetworkpolicy.json there is extracted from the v1.20.4 Cilium CRD at https://raw.githubusercontent.com/cilium/cilium/v1.20.4/pkg/k8s/apis/cilium.io/client/crds/v2/ciliumnetworkpolicies.yaml so CI validates the policy without skipping unknown kinds.
+
+## Automated dev and QA promotion
+
+Source code still needs human review in its source repository. CI builds each image once, scans it and publishes signed provenance and an SBOM. The release reconciler creates digest-only dev and QA release PRs and enables native GitHub auto-merge. Required checks, strict branch freshness, trusted release verification, and conversation resolution remain enforced. QA advances only after dev has current successful rollout and smoke evidence. Production release PRs require a code-owner approval and are not automatically merged.
+
+CODEOWNERS owns every file except the two exact dev/QA release JSON paths. The generic review count is zero because code-owner review provides the human gate for every other path, including production, Helm, scripts, policy and CODEOWNERS itself. A mixed change therefore still requires review. There is no bot bypass or automatic approval. Keep source repositories' existing review rules.
+
+After this change is reviewed and merged, apply its tracked review configuration and enable native auto-merge from this repository checkout:
+
+```bash
+gh api --method PATCH repos/Narx-Space-Prod/platform-gitops/branches/main/protection/required_pull_request_reviews --input policy/review-settings.json
+gh repo edit Narx-Space-Prod/platform-gitops --enable-auto-merge
+```
+
+These commands change only the GitOps review settings and auto-merge option. Required checks, admin enforcement, linear history and force-push protection are retained. Verify the resulting branch protection and CODEOWNERS errors endpoint before relying on automation.
