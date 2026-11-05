@@ -70,13 +70,46 @@ class DeliveryPolicy(unittest.TestCase):
     def test_forged_and_superseded_rollout_statuses_cannot_authorize_promotion(self):
         good = {'context': 'narx/deploy-qa', 'state': 'success', 'creator': {'login': 'observer[bot]'}}
         bad = dict(good, state='failure')
-        with patch.dict('os.environ', {'NARX_DEPLOYMENT_BOT_LOGIN': 'observer[bot]'}):
+        with patch.dict('os.environ', {'NARX_DEPLOYMENT_BOT_LOGIN': 'observer[bot]'}), patch.object(d, 'deployment_revisions', return_value=['d'*40]):
             with patch.object(d, 'api', return_value=[good]):
                 self.assertTrue(d.healthy('d' * 40, 'qa'))
             with patch.object(d, 'api', return_value=[bad, good]):
                 self.assertFalse(d.healthy('d' * 40, 'qa'))
             with patch.object(d, 'api', return_value=[dict(good, creator={'login': 'developer'})]):
                 self.assertFalse(d.healthy('d' * 40, 'qa'))
+
+    def test_newer_pending_or_failed_deployment_blocks_historical_success(self):
+        good={'context':'narx/deploy-qa','state':'success','creator':{'login':'observer[bot]'}}
+        with patch.dict('os.environ', {'NARX_DEPLOYMENT_BOT_LOGIN':'observer[bot]'}), patch.object(d, 'deployment_revisions', return_value=['d'*40,'c'*40]):
+            for state in ('pending','failure','error'):
+                with self.subTest(state=state), patch.object(d, 'api', side_effect=[[dict(good,state=state)],[good]]) as api:
+                    self.assertFalse(d.healthy('d'*40, 'qa'))
+                    self.assertEqual(api.call_count, 1)
+            with patch.object(d, 'api', side_effect=[[],[good]]):
+                self.assertTrue(d.healthy('d'*40, 'qa'))
+
+    def test_deployment_history_stops_at_latest_environment_configuration_change(self):
+        with tempfile.TemporaryDirectory() as directory:
+            previous=Path.cwd()
+            try:
+                os.chdir(directory)
+                subprocess.run(['git','init','--initial-branch=main'],check=True,stdout=subprocess.DEVNULL)
+                d.run('git','config','user.name','Test');d.run('git','config','user.email','test@example.invalid')
+                Path('charts').mkdir();Path('charts/chart.yaml').write_text('initial')
+                d.run('git','add','.');d.run('git','commit','-m','initial')
+                anchor=d.run('git','rev-parse','HEAD')
+                Path('environments/production').mkdir(parents=True)
+                Path('environments/production/release.json').write_text('{}')
+                d.run('git','add','.');d.run('git','commit','-m','unrelated production promotion')
+                head=d.run('git','rev-parse','HEAD')
+                self.assertEqual(d.deployment_revisions(head,'qa'),[head,anchor])
+                self.assertEqual(d.deployment_revisions(head,'production'),[head])
+                Path('charts/chart.yaml').write_text('new runtime')
+                d.run('git','add','.');d.run('git','commit','-m','runtime change')
+                changed=d.run('git','rev-parse','HEAD')
+                self.assertEqual(d.deployment_revisions(changed,'qa'),[changed])
+            finally:
+                os.chdir(previous)
 
     def test_only_completed_protected_main_ci_counts_as_source_evidence(self):
         fact = self.facts['frontend']

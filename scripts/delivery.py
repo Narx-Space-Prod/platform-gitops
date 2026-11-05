@@ -138,14 +138,30 @@ def verify_image(fact):
     raise ValueError('image lacks trusted, source-bound provenance and SBOM: ' + reference)
 
 
+def deployment_revisions(revision, environment):
+    require(re.fullmatch('[a-f0-9]{40}', revision), 'invalid GitOps revision')
+    require(environment in ENVIRONMENTS, 'unexpected deployment environment')
+    # Ignore commits for other environments, but never reuse evidence across a
+    # chart, runtime, release or Argo application configuration change.
+    anchor = run('git', 'log', '--first-parent', '-1', '--format=%H', revision, '--',
+                 'charts', 'environments/' + environment, 'applications/local/commerce.json')
+    require(re.fullmatch('[a-f0-9]{40}', anchor), 'deployment configuration history is missing')
+    revisions = run('git', 'rev-list', '--first-parent', revision, '^' + anchor).splitlines() + [anchor]
+    # Bound remote API calls; missing evidence fails closed rather than skipping
+    # newer failures to find a historical successful deployment.
+    return revisions[:50]
+
+
 def healthy(revision, environment, state='success'):
     require(re.fullmatch('[a-f0-9]{40}', revision), 'invalid GitOps revision')
     expected = os.environ.get('NARX_DEPLOYMENT_BOT_LOGIN', '')
     require(expected.endswith('[bot]'), 'deployment observer identity is not configured')
-    statuses = api(f'repos/Narx-Space-Prod/platform-gitops/commits/{revision}/statuses?per_page=100')
-    # First status for the context is the latest. A later failure cannot be hidden by an older success.
-    match = next((s for s in statuses if s['context'] == 'narx/deploy-' + environment), None)
-    return bool(match and match['state'] == state and match.get('creator', {}).get('login') == expected)
+    for deployed_revision in deployment_revisions(revision, environment):
+        statuses = api(f'repos/Narx-Space-Prod/platform-gitops/commits/{deployed_revision}/statuses?per_page=100')
+        match = next((s for s in statuses if s['context'] == 'narx/deploy-' + environment), None)
+        if match:
+            return match['state'] == state and match.get('creator', {}).get('login') == expected
+    return False
 
 
 def next_bundle(current, components, revision, environment):
