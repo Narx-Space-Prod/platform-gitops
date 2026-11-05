@@ -131,7 +131,7 @@ class PlatformPolicy(unittest.TestCase):
         for event in ['deployed','failed']:
             trigger=yaml.safe_load(config['trigger.narx-slack-'+event])[0]
             self.assertEqual(trigger['oncePer'],'app.status.operationState.startedAt')
-            if event=='deployed':self.assertIn('len(app.status.summary.images) > 0',trigger['when'])
+            if event=='deployed':self.assertIn("#.hookPhase == 'Succeeded'",trigger['when']);self.assertIn('syncResult.revision == app.status.sync.revision',trigger['when'])
             body=yaml.safe_load(config['template.narx-slack-'+event])['webhook']['slack']['body']
             with tempfile.TemporaryDirectory() as directory:
                 chart=Path(directory);(chart/'templates').mkdir()
