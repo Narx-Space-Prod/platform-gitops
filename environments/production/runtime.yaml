@@ -15,6 +15,11 @@ frontend:
   podDisruptionBudget:
     enabled: true
     minAvailable: 1
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 3
+    targetCPUUtilizationPercentage: 70
 rolloutsController:
   enabled: true
   ciliumAPI: true
