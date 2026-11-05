@@ -168,6 +168,9 @@ def rollback(current, environment):
 
 def open_pr(environment, value, reason):
     validate(value)
+    # GitHub bot account ID plus login binds attribution to our installed App.
+    identity = ['-c', 'user.name=narx-local-commerce-release[bot]',
+                '-c', 'user.email=352511280+narx-local-commerce-release[bot]@users.noreply.github.com']
     branch = 'release/' + environment + '-' + value['release']['id'][:16]
     path = f'environments/{environment}/release.json'
     existing = json.loads(run('gh', 'pr', 'list', '--repo', 'Narx-Space-Prod/platform-gitops', '--state', 'all', '--head', branch, '--json', 'number,state'))
@@ -178,14 +181,14 @@ def open_pr(environment, value, reason):
     if updating:
         run('git', 'fetch', 'origin', branch)
         run('git', 'switch', '-c', branch, 'FETCH_HEAD')
-        run('git', '-c', 'user.name=narx-release[bot]', '-c', 'user.email=release@users.noreply.github.com',
+        run('git', *identity,
             'merge', '--no-edit', 'origin/main')
     else:
         run('git', 'switch', '-c', branch, 'origin/main')
     write(ROOT / path, value)
     run('git', 'add', path)
     if subprocess.run(['git', 'diff', '--cached', '--quiet'], check=False).returncode:
-        run('git', '-c', 'user.name=narx-release[bot]', '-c', 'user.email=release@users.noreply.github.com',
+        run('git', *identity,
             'commit', '-m', f'{reason}: {environment} {value["release"]["id"][:16]}')
     run('git', 'push', 'origin', branch)
     if updating:

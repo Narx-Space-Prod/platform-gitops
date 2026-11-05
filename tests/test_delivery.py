@@ -163,6 +163,8 @@ class DeliveryPolicy(unittest.TestCase):
                 branch = 'release/dev-' + value['release']['id'][:16]
                 with patch.object(d, 'ROOT', work), patch.object(d, 'run', side_effect=command):
                     d.open_pr('dev', value, 'release')
+                    self.assertEqual(original_run('git','log','-1','--format=%an <%ae>'),
+                                     'narx-local-commerce-release[bot] <352511280+narx-local-commerce-release[bot]@users.noreply.github.com>')
                     original_run('git','switch','main')
                     original_run('git','branch','-D',branch)
                     Path('README.md').write_text('unrelated main change')
