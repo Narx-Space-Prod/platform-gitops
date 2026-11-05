@@ -117,3 +117,5 @@ trusted PR verification uses only its ephemeral packages:read token; it does not
 the release-key environment or execute candidate scripts. Remove repository-level App
 key copies after the reviewed workflow/caller cutover so branch workflows cannot read
 them. Empty bootstrap Applications cannot report a successful deployed-image status.
+
+Local QA and production use a namespaced CiliumNetworkPolicy to let only the Rollouts controller reach the kube-apiserver identity on TCP 443/6443. CIDR policies do not select node-hosted API endpoints under Cilium defaults. The existing CI custom-resource schema lookup is schemas/argo; ciliumnetworkpolicy.json there is extracted from the v1.20.4 Cilium CRD at https://raw.githubusercontent.com/cilium/cilium/v1.20.4/pkg/k8s/apis/cilium.io/client/crds/v2/ciliumnetworkpolicies.yaml so CI validates the policy without skipping unknown kinds.
