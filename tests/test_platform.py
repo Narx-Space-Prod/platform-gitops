@@ -48,6 +48,16 @@ class PlatformPolicy(unittest.TestCase):
         self.assertEqual(resources[0]['spec']['clusterResourceWhitelist'],[])
         self.assertFalse((ROOT/'applications/aws/commerce.json').exists())
 
+    def test_container_ports_declare_protocol_to_avoid_crd_default_drift(self):
+        for env in ('dev', 'qa', 'production'):
+            workloads=self.objects(env, 'Deployment')+self.objects(env, 'Rollout')
+            for workload in workloads:
+                if workload['metadata']['name']=='narx-rollouts':
+                    continue
+                for container in workload['spec']['template']['spec']['containers']:
+                    for port in container.get('ports', []):
+                        self.assertEqual(port.get('protocol'), 'TCP', workload['metadata']['name'])
+
     def test_cilium_api_access_is_limited_to_rollouts_controller(self):
         self.assertEqual(self.objects('dev', 'CiliumNetworkPolicy'), [])
         for env in ('qa', 'production'):
