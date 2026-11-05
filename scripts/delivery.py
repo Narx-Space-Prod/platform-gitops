@@ -219,12 +219,12 @@ def open_pr(environment, value, reason):
         enable_release_auto_merge(environment, branch)
         return
     lines = [f'{reason.capitalize()} **{environment}** to `{value["release"]["id"]}`.', '',
-             'Promotes existing immutable images; no rebuild. All required CI checks apply. Production requires code-owner approval; dev and QA merge automatically after checks.', '']
+             'Promotes existing immutable images; no rebuild. All required CI checks apply. All environments require code-owner approval. Dev and QA merge automatically after approval and checks; production is merged explicitly.', '']
     lines += [f'- {name}: `{f["image"]}@{f["digest"]}`; source `{f["repository"]}@{f["commit"]}`' for name, f in value['release']['components'].items()]
     body = ROOT / '.git/release-pr.md'; body.write_text('\n'.join(lines) + '\n')
     run('gh', 'pr', 'create', '--repo', 'Narx-Space-Prod/platform-gitops', '--base', 'main', '--head', branch,
         '--title', f'{reason}: {environment} {value["release"]["id"][:16]}', '--body-file', str(body),
-        *(['--reviewer', 'Code-S-12'] if environment == 'production' else []))
+        '--reviewer', 'Code-S-12')
     enable_release_auto_merge(environment, branch)
 
 
