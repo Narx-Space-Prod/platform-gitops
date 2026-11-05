@@ -2,6 +2,7 @@ integration:
   namespaces: &id001
   - commerce-dev
   - commerce-qa
+  - commerce-production
   scrapeConfigs:
   - job_name: narx-http
     kubernetes_sd_configs:
@@ -170,7 +171,7 @@ integration:
   - job_name: narx-argocd
     static_configs:
     - targets:
-      - argocd-metrics.argocd.svc:8082
+      - mega-local-control-plane:32082
       labels:
         project: narx-commerce
         environment: platform
@@ -182,7 +183,7 @@ integration:
       action: keep
     - source_labels:
       - name
-      regex: narx-commerce-(dev|qa)
+      regex: narx-commerce-(dev|qa|production)
       action: keep
     - source_labels:
       - name
@@ -355,7 +356,7 @@ integration:
   dashboards:
     narx-commerce:
       uid: narx-commerce
-      title: Narx Commerce — Delivery and Runtime
+      title: "Narx Commerce \u2014 Delivery and Runtime"
       schemaVersion: 39
       version: 1
       tags:

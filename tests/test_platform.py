@@ -149,7 +149,7 @@ class PlatformPolicy(unittest.TestCase):
             self.assertEqual(controller['spec']['template']['spec']['containers'][0]['args'],['--namespaced'])
 
     def test_monitoring_discovers_only_narx_and_keeps_project_identity(self):
-        self.assertEqual(self.monitoring['namespaces'],['commerce-dev','commerce-qa'])
+        self.assertEqual(self.monitoring['namespaces'],['commerce-dev','commerce-qa','commerce-production'])
         jobs=self.monitoring['scrapeConfigs']
         self.assertEqual(len({j['job_name'] for j in jobs}),len(jobs))
         for job in jobs:
