@@ -48,11 +48,32 @@ class PlatformPolicy(unittest.TestCase):
         self.assertEqual(resources[0]['spec']['clusterResourceWhitelist'],[])
         self.assertFalse((ROOT/'applications/aws/commerce.json').exists())
 
+    def test_repository_review_policy_keeps_all_paths_owned_and_one_approval(self):
+        policy=json.loads((ROOT/'policy/review-settings.json').read_text())
+        self.assertEqual(policy['required_approving_review_count'], 1)
+        self.assertTrue(policy['require_code_owner_reviews'])
+        self.assertTrue(policy['require_last_push_approval'])
+        self.assertTrue(policy['dismiss_stale_reviews'])
+        rules=[line.strip() for line in (ROOT/'.github/CODEOWNERS').read_text().splitlines()
+               if line.strip() and not line.lstrip().startswith('#')]
+        self.assertEqual(rules, ['* @Narx-Space-Prod/code-reviewers'])
+
+    def test_container_ports_declare_protocol_to_avoid_crd_default_drift(self):
+        for env in ('dev', 'qa', 'production'):
+            workloads=self.objects(env, 'Deployment')+self.objects(env, 'Rollout')
+            for workload in workloads:
+                if workload['metadata']['name'] not in {'commerce-'+name for name in ('frontend','catalogue','cart','orders','publisher','worker')}:
+                    continue
+                for container in workload['spec']['template']['spec']['containers']:
+                    for port in container.get('ports', []):
+                        self.assertEqual(port.get('protocol'), 'TCP', workload['metadata']['name'])
+
     def test_cilium_api_access_is_limited_to_rollouts_controller(self):
         self.assertEqual(self.objects('dev', 'CiliumNetworkPolicy'), [])
         for env in ('qa', 'production'):
             policies=self.objects(env, 'CiliumNetworkPolicy')
             self.assertEqual(len(policies), 1)
+            self.assertEqual(policies[0]['metadata']['annotations']['argocd.argoproj.io/sync-wave'], '-2')
             spec=policies[0]['spec']
             self.assertEqual(spec['endpointSelector']['matchLabels'],
                              {'app.kubernetes.io/name':'narx-rollouts'})

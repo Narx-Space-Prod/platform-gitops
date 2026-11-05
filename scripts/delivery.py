@@ -138,14 +138,30 @@ def verify_image(fact):
     raise ValueError('image lacks trusted, source-bound provenance and SBOM: ' + reference)
 
 
+def deployment_revisions(revision, environment):
+    require(re.fullmatch('[a-f0-9]{40}', revision), 'invalid GitOps revision')
+    require(environment in ENVIRONMENTS, 'unexpected deployment environment')
+    # Ignore commits for other environments, but never reuse evidence across a
+    # chart, runtime, release or Argo application configuration change.
+    anchor = run('git', 'log', '--first-parent', '-1', '--format=%H', revision, '--',
+                 'charts', 'environments/' + environment, 'applications/local/commerce.json')
+    require(re.fullmatch('[a-f0-9]{40}', anchor), 'deployment configuration history is missing')
+    revisions = run('git', 'rev-list', '--first-parent', revision, '^' + anchor).splitlines() + [anchor]
+    # Bound remote API calls; missing evidence fails closed rather than skipping
+    # newer failures to find a historical successful deployment.
+    return revisions[:50]
+
+
 def healthy(revision, environment, state='success'):
     require(re.fullmatch('[a-f0-9]{40}', revision), 'invalid GitOps revision')
     expected = os.environ.get('NARX_DEPLOYMENT_BOT_LOGIN', '')
     require(expected.endswith('[bot]'), 'deployment observer identity is not configured')
-    statuses = api(f'repos/Narx-Space-Prod/platform-gitops/commits/{revision}/statuses?per_page=100')
-    # First status for the context is the latest. A later failure cannot be hidden by an older success.
-    match = next((s for s in statuses if s['context'] == 'narx/deploy-' + environment), None)
-    return bool(match and match['state'] == state and match.get('creator', {}).get('login') == expected)
+    for deployed_revision in deployment_revisions(revision, environment):
+        statuses = api(f'repos/Narx-Space-Prod/platform-gitops/commits/{deployed_revision}/statuses?per_page=100')
+        match = next((s for s in statuses if s['context'] == 'narx/deploy-' + environment), None)
+        if match:
+            return match['state'] == state and match.get('creator', {}).get('login') == expected
+    return False
 
 
 def next_bundle(current, components, revision, environment):
@@ -203,12 +219,12 @@ def open_pr(environment, value, reason):
         enable_release_auto_merge(environment, branch)
         return
     lines = [f'{reason.capitalize()} **{environment}** to `{value["release"]["id"]}`.', '',
-             'Promotes existing immutable images; no rebuild. All required CI checks apply. Production requires code-owner approval; dev and QA merge automatically after checks.', '']
+             'Promotes existing immutable images; no rebuild. All required CI checks apply. All environments require code-owner approval. Dev and QA merge automatically after approval and checks; production is merged explicitly.', '']
     lines += [f'- {name}: `{f["image"]}@{f["digest"]}`; source `{f["repository"]}@{f["commit"]}`' for name, f in value['release']['components'].items()]
     body = ROOT / '.git/release-pr.md'; body.write_text('\n'.join(lines) + '\n')
     run('gh', 'pr', 'create', '--repo', 'Narx-Space-Prod/platform-gitops', '--base', 'main', '--head', branch,
         '--title', f'{reason}: {environment} {value["release"]["id"][:16]}', '--body-file', str(body),
-        *(['--reviewer', 'Code-S-12'] if environment == 'production' else []))
+        '--reviewer', 'Code-S-12')
     enable_release_auto_merge(environment, branch)
 
 

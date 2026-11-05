@@ -122,9 +122,9 @@ Local QA and production use a namespaced CiliumNetworkPolicy to let only the Rol
 
 ## Automated dev and QA promotion
 
-Source code still needs human review in its source repository. CI builds each image once, scans it and publishes signed provenance and an SBOM. The release reconciler creates digest-only dev and QA release PRs and enables native GitHub auto-merge. Required checks, strict branch freshness, trusted release verification, and conversation resolution remain enforced. QA advances only after dev has current successful rollout and smoke evidence. Production release PRs require a code-owner approval and are not automatically merged.
+Source code still needs human review in its source repository. CI builds each image once, scans it and publishes signed provenance and an SBOM. The release reconciler creates digest-only dev and QA release PRs and enables native GitHub auto-merge. Required checks, strict branch freshness, trusted release verification, and conversation resolution remain enforced. QA advances only after dev has current successful rollout and smoke evidence. Every release PR requires code-owner approval; dev and QA can merge automatically after approval and checks. Production is merged explicitly.
 
-CODEOWNERS owns every file except the two exact dev/QA release JSON paths. The generic review count is zero because code-owner review provides the human gate for every other path, including production, Helm, scripts, policy and CODEOWNERS itself. A mixed change therefore still requires review. There is no bot bypass or automatic approval. Keep source repositories' existing review rules.
+CODEOWNERS owns every file and main requires one approval, including the most recent push. A live GitHub check showed that setting the generic approval count to zero did not enforce code-owner review, so that configuration was withdrawn. Fully unattended dev/QA promotions are not enabled under the current repository-wide review boundary. Native auto-merge waits for human review and required checks; it is not an approval bot or a bypass. Source repository protections remain unchanged.
 
 After this change is reviewed and merged, apply its tracked review configuration and enable native auto-merge from this repository checkout:
 
@@ -134,3 +134,5 @@ gh repo edit Narx-Space-Prod/platform-gitops --enable-auto-merge
 ```
 
 These commands change only the GitOps review settings and auto-merge option. Required checks, admin enforcement, linear history and force-push protection are retained. Verify the resulting branch protection and CODEOWNERS errors endpoint before relying on automation.
+
+Promotion evidence follows the environment configuration history, not every unrelated GitOps commit. Reconciliation searches main history back to the latest change in shared charts, that environment directory, or the local Argo application definitions. It uses the newest deployment status within that window. Pending/failure/forged status blocks advancement; a runtime change invalidates older success. The search is bounded to 50 revisions and missing evidence fails closed.
