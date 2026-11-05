@@ -1,8 +1,8 @@
-# Local production exercise. The same verified release is promoted from QA.
 environment: production
 publicOrigin: http://localhost:18082
 cookieSecure: false
-podIdentity: {enabled: false}
+podIdentity:
+  enabled: false
 externalDataCIDRs: []
 awsRegion: us-east-1
 localData:
@@ -10,8 +10,11 @@ localData:
   storageClass: standard
 frontend:
   replicaCount: 2
-  progressive: {enabled: true}
-  podDisruptionBudget: {enabled: true, minAvailable: 1}
+  progressive:
+    enabled: true
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
 rolloutsController:
   enabled: true
-  apiServerCIDRs: [10.96.0.1/32, 172.18.0.0/16]
+  ciliumAPI: true

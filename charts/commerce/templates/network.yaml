@@ -37,6 +37,22 @@ spec:
 {{- end }}
 
 {{- if and .Values.release.ready .Values.rolloutsController.enabled }}
+{{- if .Values.rolloutsController.ciliumAPI }}
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: commerce-rollouts-api
+spec:
+  endpointSelector:
+    matchLabels: {app.kubernetes.io/name: narx-rollouts}
+  egress:
+    - toEntities: [kube-apiserver]
+      toPorts:
+        - ports:
+            - {port: "443", protocol: TCP}
+            - {port: "6443", protocol: TCP}
+{{- else }}
 {{- $cidrs := concat .Values.rolloutsController.apiServerCIDRs .Values.externalDataCIDRs }}
 {{- if $cidrs }}
 ---
@@ -53,5 +69,6 @@ spec:
         - ipBlock: {cidr: {{ . | quote }}}
         {{- end }}
       ports: [{protocol: TCP, port: 443}, {protocol: TCP, port: 6443}]
+{{- end }}
 {{- end }}
 {{- end }}
