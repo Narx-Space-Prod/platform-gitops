@@ -66,8 +66,11 @@ spec:
             - {name: temporary, mountPath: /tmp}
       volumes: [{name: runtime, emptyDir: {}}, {name: temporary, emptyDir: {}}]
   volumeClaimTemplates:
-    - metadata: {name: database}
+    - apiVersion: v1
+      kind: PersistentVolumeClaim
+      metadata: {name: database}
       spec:
+        volumeMode: Filesystem
         storageClassName: {{ .Values.localData.storageClass | quote }}
         accessModes: [ReadWriteOnce]
         resources: {requests: {storage: 1Gi}}
@@ -128,8 +131,11 @@ spec:
             - {name: temporary, mountPath: /tmp}
       volumes: [{name: config, configMap: {name: elasticmq-config}}, {name: temporary, emptyDir: {}}]
   volumeClaimTemplates:
-    - metadata: {name: queue}
+    - apiVersion: v1
+      kind: PersistentVolumeClaim
+      metadata: {name: queue}
       spec:
+        volumeMode: Filesystem
         storageClassName: {{ .Values.localData.storageClass | quote }}
         accessModes: [ReadWriteOnce]
         resources: {requests: {storage: 1Gi}}
