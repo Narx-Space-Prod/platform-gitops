@@ -48,6 +48,20 @@ class PlatformPolicy(unittest.TestCase):
         self.assertEqual(resources[0]['spec']['clusterResourceWhitelist'],[])
         self.assertFalse((ROOT/'applications/aws/commerce.json').exists())
 
+    def test_cilium_api_access_is_limited_to_rollouts_controller(self):
+        self.assertEqual(self.objects('dev', 'CiliumNetworkPolicy'), [])
+        for env in ('qa', 'production'):
+            policies=self.objects(env, 'CiliumNetworkPolicy')
+            self.assertEqual(len(policies), 1)
+            spec=policies[0]['spec']
+            self.assertEqual(spec['endpointSelector']['matchLabels'],
+                             {'app.kubernetes.io/name':'narx-rollouts'})
+            self.assertEqual(spec['egress'], [{'toEntities':['kube-apiserver'],
+                              'toPorts':[{'ports':[{'port':'443','protocol':'TCP'},
+                                                   {'port':'6443','protocol':'TCP'}]}]}])
+            self.assertFalse([p for p in self.objects(env, 'NetworkPolicy')
+                              if p['metadata']['name']=='commerce-rollouts-api'])
+
     def test_dev_stays_simple_and_only_frontend_uses_progressive_delivery(self):
         self.assertFalse(self.objects('dev','Rollout'))
         self.assertFalse(self.objects('dev','AnalysisTemplate'))
