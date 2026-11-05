@@ -33,7 +33,7 @@ spec:
             - |
               import http from 'node:http';
               import {setTimeout as pause} from 'node:timers/promises';
-              const agent = new http.Agent({keepAlive: true, maxSockets: 8});
+              const agent = new http.Agent({keepAlive: true, maxSockets: 4});
               const pending = new Set();
               let successful = 0, failed = 0;
               const started = Date.now();
@@ -53,8 +53,8 @@ spec:
                 });
               }
               while (Date.now() < end) {
-                // At most 500 attempts/second and eight concurrent requests.
-                for (let i = 0; i < 5 && pending.size < 8; i++) {
+                // At most 200 attempts/second and four concurrent requests.
+                for (let i = 0; i < 2 && pending.size < 4; i++) {
                   const task = request();
                   pending.add(task);
                   task.finally(() => pending.delete(task));

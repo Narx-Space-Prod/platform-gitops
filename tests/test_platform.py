@@ -68,6 +68,18 @@ class PlatformPolicy(unittest.TestCase):
                     for port in container.get('ports', []):
                         self.assertEqual(port.get('protocol'), 'TCP', workload['metadata']['name'])
 
+    def test_probes_allow_startup_and_brief_host_latency_without_disabling_health(self):
+        for env in ('dev','qa','production'):
+            for workload in self.objects(env,'Deployment')+self.objects(env,'Rollout')+self.objects(env,'StatefulSet'):
+                for container in workload['spec']['template']['spec']['containers']:
+                    for kind in ('readinessProbe','livenessProbe'):
+                        if kind in container:
+                            self.assertEqual(container[kind]['timeoutSeconds'], 5)
+                    if 'startupProbe' in container:
+                        probe=container['startupProbe']
+                        self.assertGreaterEqual(probe['failureThreshold']*probe['periodSeconds'],300)
+                        self.assertEqual(probe['timeoutSeconds'],5)
+
     def test_hpa_is_bounded_and_argo_leaves_only_frontend_replicas_to_it(self):
         self.assertEqual(self.objects('dev', 'HorizontalPodAutoscaler'), [])
         for env, minimum, maximum in [('qa',1,2), ('production',2,3)]:
