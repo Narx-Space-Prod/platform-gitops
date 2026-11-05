@@ -52,7 +52,7 @@ class PlatformPolicy(unittest.TestCase):
         for env in ('dev', 'qa', 'production'):
             workloads=self.objects(env, 'Deployment')+self.objects(env, 'Rollout')
             for workload in workloads:
-                if workload['metadata']['name']=='narx-rollouts':
+                if workload['metadata']['name'] not in {'commerce-'+name for name in ('frontend','catalogue','cart','orders','publisher','worker')}:
                     continue
                 for container in workload['spec']['template']['spec']['containers']:
                     for port in container.get('ports', []):
