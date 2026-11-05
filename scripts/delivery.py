@@ -166,6 +166,13 @@ def rollback(current, environment):
     return bundle(previous['components'])
 
 
+def enable_release_auto_merge(environment, branch):
+    require(environment in ENVIRONMENTS, 'unexpected promotion environment')
+    if environment in ('dev', 'qa'):
+        run('gh', 'pr', 'merge', branch, '--repo', 'Narx-Space-Prod/platform-gitops',
+            '--auto', '--squash', '--match-head-commit', run('git', 'rev-parse', 'HEAD'))
+
+
 def open_pr(environment, value, reason):
     validate(value)
     # GitHub bot account ID plus login binds attribution to our installed App.
@@ -193,13 +200,16 @@ def open_pr(environment, value, reason):
     run('git', 'push', 'origin', branch)
     if updating:
         print('Refreshed release PR against current main:', existing[0]['number'])
+        enable_release_auto_merge(environment, branch)
         return
     lines = [f'{reason.capitalize()} **{environment}** to `{value["release"]["id"]}`.', '',
-             'Promotes existing immutable images; no rebuild. All main review and CI requirements apply.', '']
+             'Promotes existing immutable images; no rebuild. All required CI checks apply. Production requires code-owner approval; dev and QA merge automatically after checks.', '']
     lines += [f'- {name}: `{f["image"]}@{f["digest"]}`; source `{f["repository"]}@{f["commit"]}`' for name, f in value['release']['components'].items()]
     body = ROOT / '.git/release-pr.md'; body.write_text('\n'.join(lines) + '\n')
     run('gh', 'pr', 'create', '--repo', 'Narx-Space-Prod/platform-gitops', '--base', 'main', '--head', branch,
-        '--title', f'{reason}: {environment} {value["release"]["id"][:16]}', '--body-file', str(body), '--reviewer', 'Code-S-12')
+        '--title', f'{reason}: {environment} {value["release"]["id"][:16]}', '--body-file', str(body),
+        *(['--reviewer', 'Code-S-12'] if environment == 'production' else []))
+    enable_release_auto_merge(environment, branch)
 
 
 def released_facts():

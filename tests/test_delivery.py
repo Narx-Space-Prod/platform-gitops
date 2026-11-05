@@ -148,7 +148,8 @@ class DeliveryPolicy(unittest.TestCase):
                     return original_run(*args, **kwargs)
                 if args[1:3] == ('pr','list'):
                     return json.dumps(existing)
-                created.append(args)
+                if args[1:3] == ('pr','create'):
+                    created.append(args)
                 return ''
             try:
                 os.chdir(work)
@@ -178,6 +179,19 @@ class DeliveryPolicy(unittest.TestCase):
                     self.assertEqual(len(created),1)
             finally:
                 os.chdir(previous_directory)
+
+    def test_auto_merge_is_limited_to_dev_qa_and_pins_the_commit(self):
+        for environment in ('dev', 'qa', 'production'):
+            with self.subTest(environment=environment), patch.object(d, 'run', return_value='a'*40) as command:
+                d.enable_release_auto_merge(environment, 'release/example')
+                if environment == 'production':
+                    command.assert_not_called()
+                else:
+                    command.assert_any_call('gh', 'pr', 'merge', 'release/example', '--repo',
+                                            'Narx-Space-Prod/platform-gitops', '--auto', '--squash',
+                                            '--match-head-commit', 'a'*40)
+        with self.assertRaises(ValueError):
+            d.enable_release_auto_merge('unknown', 'release/example')
 
     def test_bootstrap_is_non_deployable_and_has_no_fake_images(self):
         value = {'release': {'ready': False, 'id': '', 'components': {}, 'previous': None},
