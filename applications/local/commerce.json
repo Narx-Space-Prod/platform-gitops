@@ -212,6 +212,14 @@
                 "jqPathExpressions": [
                   ".spec.volumeClaimTemplates[].status"
                 ]
+              },
+              {
+                "group": "argoproj.io",
+                "kind": "Rollout",
+                "name": "commerce-frontend",
+                "jsonPointers": [
+                  "/spec/replicas"
+                ]
               }
             ]
           }

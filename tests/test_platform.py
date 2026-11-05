@@ -68,6 +68,23 @@ class PlatformPolicy(unittest.TestCase):
                     for port in container.get('ports', []):
                         self.assertEqual(port.get('protocol'), 'TCP', workload['metadata']['name'])
 
+    def test_hpa_is_bounded_and_argo_leaves_only_frontend_replicas_to_it(self):
+        self.assertEqual(self.objects('dev', 'HorizontalPodAutoscaler'), [])
+        for env, minimum, maximum in [('qa',1,2), ('production',2,3)]:
+            hpas=self.objects(env, 'HorizontalPodAutoscaler')
+            self.assertEqual(len(hpas), 1)
+            hpa=hpas[0]['spec']
+            self.assertEqual(hpa['scaleTargetRef'], {'apiVersion':'argoproj.io/v1alpha1','kind':'Rollout','name':'commerce-frontend'})
+            self.assertEqual((hpa['minReplicas'],hpa['maxReplicas']),(minimum,maximum))
+            self.assertEqual(hpa['metrics'][0]['resource']['target']['averageUtilization'],70)
+            self.assertEqual(hpa['behavior']['scaleDown']['stabilizationWindowSeconds'],300)
+            self.assertEqual(hpa['behavior']['scaleUp']['policies'],[{'type':'Pods','value':1,'periodSeconds':60}])
+            self.assertNotIn('replicas',self.objects(env,'Rollout')[0]['spec'])
+        items=json.loads((ROOT/'applications/local/commerce.json').read_text())['items']
+        ignores=items[1]['spec']['template']['spec']['ignoreDifferences']
+        replica_rules=[i for i in ignores if '/spec/replicas' in i.get('jsonPointers',[])]
+        self.assertEqual(replica_rules,[{'group':'argoproj.io','kind':'Rollout','name':'commerce-frontend','jsonPointers':['/spec/replicas']}])
+
     def test_cilium_api_access_is_limited_to_rollouts_controller(self):
         self.assertEqual(self.objects('dev', 'CiliumNetworkPolicy'), [])
         for env in ('qa', 'production'):

@@ -33,7 +33,7 @@ spec:
     - to: [{ipBlock: {cidr: 169.254.170.23/32}}]
       ports: [{protocol: TCP, port: 80}]
     {{- end }}
-# An enforcing CNI is required; kindnet alone does not enforce these policies.
+# NetworkPolicy requires enforcement; the dedicated Narx cluster uses Cilium.
 {{- end }}
 
 {{- if and .Values.release.ready .Values.rolloutsController.enabled }}

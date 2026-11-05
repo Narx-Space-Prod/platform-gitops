@@ -1,0 +1,74 @@
+# Manual QA-only mechanics exercise. Never part of the Argo application chart.
+# Uses the already verified frontend artifact only as a Node runtime.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: narx-hpa-load
+  namespace: commerce-qa
+  labels:
+    app.kubernetes.io/part-of: narx-commerce
+    delivery.narx.space/exercise: hpa
+spec:
+  activeDeadlineSeconds: 120
+  ttlSecondsAfterFinished: 300
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: narx-hpa-load
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      imagePullSecrets: [{name: ghcr-pull}]
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: load
+          image: ghcr.io/narx-space-prod/commerce-frontend@sha256:d6390f4248ee46d583f8b9fef273ed5f02cca5a567a8df3047d656f4f772513d
+          command: [node, --input-type=module, -e]
+          args:
+            - |
+              import http from 'node:http';
+              import {setTimeout as pause} from 'node:timers/promises';
+              const agent = new http.Agent({keepAlive: true, maxSockets: 8});
+              const pending = new Set();
+              let successful = 0, failed = 0;
+              const started = Date.now();
+              const end = started + 90000;
+              function request() {
+                return new Promise(resolve => {
+                  const req = http.get({hostname: 'commerce-frontend', path: '/metrics', agent}, res => {
+                    res.resume();
+                    res.on('end', () => {
+                      if (res.statusCode === 200) successful++; else failed++;
+                      resolve();
+                    });
+                    res.on('error', () => { failed++; resolve(); });
+                  });
+                  req.setTimeout(2000, () => req.destroy(new Error('request deadline')));
+                  req.on('error', () => { failed++; resolve(); });
+                });
+              }
+              while (Date.now() < end) {
+                // At most 500 attempts/second and eight concurrent requests.
+                for (let i = 0; i < 5 && pending.size < 8; i++) {
+                  const task = request();
+                  pending.add(task);
+                  task.finally(() => pending.delete(task));
+                }
+                await pause(10);
+              }
+              await Promise.all(pending);
+              agent.destroy();
+              console.log(JSON.stringify({successful, failed, elapsedSeconds: (Date.now()-started)/1000}));
+              if (successful === 0 || failed > 0) process.exitCode = 1;
+          resources:
+            requests: {cpu: 25m, memory: 64Mi}
+            limits: {cpu: 500m, memory: 128Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}

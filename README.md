@@ -136,3 +136,9 @@ gh repo edit Narx-Space-Prod/platform-gitops --enable-auto-merge
 These commands change only the GitOps review settings and auto-merge option. Required checks, admin enforcement, linear history and force-push protection are retained. Verify the resulting branch protection and CODEOWNERS errors endpoint before relying on automation.
 
 Promotion evidence follows the environment configuration history, not every unrelated GitOps commit. Reconciliation searches main history back to the latest change in shared charts, that environment directory, or the local Argo application definitions. It uses the newest deployment status within that window. Pending/failure/forged status blocks advancement; a runtime change invalidates older success. The search is bounded to 50 revisions and missing evidence fails closed.
+
+## Bounded frontend autoscaling
+
+The metrics API has been verified on the Narx cluster. QA frontend HPA is bounded to 1–2 replicas; production to 2–3, targeting 70% CPU request utilization. Scale-up adds at most one pod per minute, and scale-down waits five minutes before removing at most one per minute. Dev and the other services keep fixed replicas. This is a laptop capacity profile, not a production throughput claim.
+
+HPA scales the Rollout through its scale subresource. Helm omits replicas while HPA is enabled, and the local ApplicationSet ignores only the named frontend Rollout replica field with RespectIgnoreDifferences enabled. Image and pod-template drift remain enforced. After reviewed activation, verify HPA conditions/metrics, observe a bounded QA-only load exercise, then confirm scale-down and that Argo remains Synced. The initial configuration is not evidence that this live test passed.
