@@ -322,13 +322,20 @@
                 "mountPath": "/tmp"
               }
             ],
+            "startupProbe": {
+              "httpGet": {"path": "/healthz", "port": 8080},
+              "failureThreshold": 60,
+              "periodSeconds": 5,
+              "timeoutSeconds": 5
+            },
             "readinessProbe": {
               "httpGet": {
                 "path": "/healthz",
                 "port": 8080
               },
               "initialDelaySeconds": 5,
-              "periodSeconds": 5
+              "periodSeconds": 5,
+              "timeoutSeconds": 5
             },
             "livenessProbe": {
               "httpGet": {
@@ -336,7 +343,8 @@
                 "port": 8080
               },
               "initialDelaySeconds": 30,
-              "periodSeconds": 10
+              "periodSeconds": 10,
+              "timeoutSeconds": 5
             }
           }
         ],
