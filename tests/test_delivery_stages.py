@@ -79,5 +79,9 @@ class DeliveryGraph(unittest.TestCase):
    self.assertNotIn('environment',jobs[name])
    self.assertEqual(jobs[name]['permissions']['statuses'],'read')
    self.assertEqual(jobs[name]['permissions']['contents'],'read')
+  observer=yaml.safe_load((root/'.github/workflows/delivery-observe.yml').read_text())['jobs']['observe']
+  self.assertNotIn('environment',observer)
+  self.assertNotIn('secrets',observer)
+  self.assertEqual(observer['permissions'],{'contents':'read','statuses':'read','pull-requests':'read'})
   self.assertIn('github.event.pull_request.merged == true',jobs['production']['if'])
   self.assertIn('github.event.pull_request.head.repo.full_name == github.repository',jobs['production']['if'])

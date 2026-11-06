@@ -36,24 +36,14 @@ jobs:
     name: 02 - Dev rollout and smoke gate
     needs: dev
     if: needs.dev.outputs.active == 'true'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 25
     permissions:
       contents: read
       statuses: read
       pull-requests: read
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          ref: main
-          persist-credentials: false
-          fetch-depth: 0
-      - name: Wait for exact Dev bundle and trusted smoke evidence
-        env:
-          GH_TOKEN: ${{ github.token }}
-          NARX_DEPLOYMENT_BOT_LOGIN: ${{ vars.NARX_DEPLOYMENT_BOT_LOGIN }}
-          RELEASE_ID: ${{ needs.dev.outputs.release-id }}
-        run: python3 scripts/delivery.py wait dev --bundle "$RELEASE_ID"
+    uses: ./.github/workflows/delivery-observe.yml
+    with:
+      environment: dev
+      release-id: ${{ needs.dev.outputs.release-id }}
   qa:
     name: 03 - Promote the verified bundle to QA
     needs: [dev, verify-dev]
@@ -69,24 +59,14 @@ jobs:
     name: 04 - QA rollout and smoke gate
     needs: [dev, qa]
     if: needs.dev.outputs.active == 'true'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 25
     permissions:
       contents: read
       statuses: read
       pull-requests: read
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          ref: main
-          persist-credentials: false
-          fetch-depth: 0
-      - name: Wait for exact QA bundle and trusted smoke evidence
-        env:
-          GH_TOKEN: ${{ github.token }}
-          NARX_DEPLOYMENT_BOT_LOGIN: ${{ vars.NARX_DEPLOYMENT_BOT_LOGIN }}
-          RELEASE_ID: ${{ needs.dev.outputs.release-id }}
-        run: python3 scripts/delivery.py wait qa --bundle "$RELEASE_ID"
+    uses: ./.github/workflows/delivery-observe.yml
+    with:
+      environment: qa
+      release-id: ${{ needs.dev.outputs.release-id }}
   production-pr:
     name: 05 - Request Production PR approval
     needs: [dev, verify-qa]
@@ -101,23 +81,14 @@ jobs:
   production:
     name: 06 - Approved Production rollout and smoke gate
     if: github.repository == 'Narx-Space-Prod/platform-gitops' && vars.DELIVERY_ENABLED == 'true' && github.event_name == 'pull_request' && github.event.pull_request.merged == true && github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: ubuntu-24.04
-    timeout-minutes: 25
     permissions:
       contents: read
       statuses: read
       pull-requests: read
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          ref: main
-          persist-credentials: false
-          fetch-depth: 0
-      - name: Verify the approved Production release deployment
-        env:
-          GH_TOKEN: ${{ github.token }}
-          NARX_DEPLOYMENT_BOT_LOGIN: ${{ vars.NARX_DEPLOYMENT_BOT_LOGIN }}
-        run: python3 scripts/delivery.py observe-production
+    uses: ./.github/workflows/delivery-observe.yml
+    with:
+      environment: production
+      operation: observe-production
   summary:
     name: Delivery overview and next action
     needs: [dev, verify-dev, qa, verify-qa, production-pr, production]
