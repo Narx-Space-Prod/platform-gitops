@@ -15,7 +15,7 @@ worker. The background roles reuse the orders image; there are no extra image bu
 It is not the Kubernetes dev/QA deployment or an AWS environment.
 All changes after repository initialization go through feature branches and pull requests.
 These repositories are public on GitHub Free. Protected `main` requires a CODEOWNER
-approval for owned files, passing CI checks and resolved conversations; administrators follow the same rules. Only Dev/QA release JSON files are unowned, with trusted verification requiring the dedicated release App as author.
+approval from the designated reviewer team for protected file paths, passing CI checks and resolved conversations; administrators follow the same rules. Only Dev/QA release JSON files are unowned, with trusted verification requiring the dedicated release App as author.
 
 ## Chart contract
 
@@ -38,7 +38,7 @@ PRs. The trusted candidate verifier never executes PR code. Dev and QA release P
 automatically after required checks. Production requires code-owner approval and explicit
 merge. Failed QA rollouts can propose verified automatic rollback PRs; Production
 rollback PRs retain human review; persistent data and SQL migrations are not rolled back. See DOC.md for exact App,
-OIDC, credential-refresh and activation steps. All three environments have running workloads. After this policy PR is reviewed and merged, apply `policy/review-settings.json` to the GitOps main branch review settings. It sets the blanket approval count to zero while retaining required code-owner reviews and stale-review dismissal. This permits only the two explicitly unowned release files to advance without human approval. Service repository review settings are unchanged.
+OIDC, credential-refresh and activation steps. All three environments have running workloads. After this policy PR is reviewed and merged, apply `policy/review-settings.json` to the GitOps main branch review settings. The blanket count is zero, but that alone does not enforce code-owner review. The active native ruleset in `policy/review-ruleset.json` requires one approval from the reviewer team for all paths except the two Dev/QA release files. Keep this ruleset active before applying the zero-count branch setting; never rely on CODEOWNERS alone at count zero. No user or App has a ruleset bypass. Service repository review settings are unchanged.
 
 ## Local preview and integration tests
 
