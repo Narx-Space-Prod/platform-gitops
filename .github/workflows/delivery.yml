@@ -1,82 +1,154 @@
-name: Release operations
+name: 02 - Commerce Delivery
+run-name: >-
+  Delivery | ${{ github.event_name == 'pull_request' && format('Production PR {0}', github.event.pull_request.number) || format('Intake {0}', github.run_number) }}
 
 on:
-  status:
   repository_dispatch:
     types: [release-published]
-  schedule:
-    - cron: '*/5 * * * *'
   workflow_dispatch:
-    inputs:
-      operation:
-        type: choice
-        options: [reconcile, rollback]
-        default: reconcile
-      environment:
-        type: choice
-        options: [dev, qa, production]
-        default: qa
+  schedule:
+    - cron: '17 * * * *'
+  pull_request:
+    types: [closed]
+    branches: [main]
+    paths: [environments/production/release.json]
 
 permissions:
   contents: read
 
+# One writer owns Dev/QA progression. Production observation is read-only and
+# must not wait behind a later release while a reviewer merges its approved PR.
+concurrency:
+  group: ${{ github.event_name == 'pull_request' && 'production-observation' || 'release-operations' }}
+  cancel-in-progress: false
+
 jobs:
-  release:
-    name: Verify release and propose GitOps change
-    if: >-
-      vars.DELIVERY_ENABLED == 'true' && github.ref == 'refs/heads/main' &&
-      (github.event_name != 'status' ||
-       (github.event.sender.login == vars.NARX_DEPLOYMENT_BOT_LOGIN &&
-        contains(fromJSON('["narx/deploy-dev","narx/deploy-qa","narx/deploy-production"]'), github.event.context) &&
-        contains(fromJSON('["success","failure"]'), github.event.state)))
-    # Only eligible jobs enter this queue; unrelated/pending statuses cannot
-    # displace a trusted queued deployment event. Reconcile always reads fresh state.
-    concurrency:
-      group: release-operations
-      cancel-in-progress: false
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    environment: gitops-release
+  dev:
+    name: 01 - Verify releases and prepare Dev
+    if: github.repository == 'Narx-Space-Prod/platform-gitops' && vars.DELIVERY_ENABLED == 'true' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     permissions:
       contents: read
       packages: read
+    uses: ./.github/workflows/delivery-stage.yml
+    with:
+      environment: dev
+  verify-dev:
+    name: 02 - Dev rollout and smoke gate
+    needs: dev
+    if: needs.dev.outputs.active == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      statuses: read
+      pull-requests: read
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: main
           persist-credentials: false
           fetch-depth: 0
-      - name: Authenticate read-only GHCR verification
+      - name: Wait for exact Dev bundle and trusted smoke evidence
         env:
-          REGISTRY_TOKEN: ${{ github.token }}
-        run: |
-          export DOCKER_CONFIG="$RUNNER_TEMP/narx-docker-verify"
-          printf 'DOCKER_CONFIG=%s\n' "$DOCKER_CONFIG" >> "$GITHUB_ENV"
-          printf '%s' "$REGISTRY_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
-      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
-        with:
-          cosign-release: v3.1.4
-      - name: Mint short-lived GitOps PR token
-        id: app
-        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
-        with:
-          app-id: ${{ vars.NARX_RELEASE_APP_ID }}
-          private-key: ${{ secrets.NARX_RELEASE_APP_PRIVATE_KEY }}
-          owner: Narx-Space-Prod
-          repositories: platform-gitops
-          permission-contents: write
-          permission-pull-requests: write
-      - name: Configure authenticated Git transport without storing a credential in the checkout
-        env:
-          GH_TOKEN: ${{ steps.app.outputs.token }}
-        run: gh auth setup-git
-      - name: Reconcile signed releases, promote verified bundles or propose rollback
-        env:
-          GH_TOKEN: ${{ steps.app.outputs.token }}
+          GH_TOKEN: ${{ github.token }}
           NARX_DEPLOYMENT_BOT_LOGIN: ${{ vars.NARX_DEPLOYMENT_BOT_LOGIN }}
-          OPERATION: ${{ inputs.operation || 'reconcile' }}
-          TARGET_ENVIRONMENT: ${{ inputs.environment || 'qa' }}
-        run: python3 scripts/delivery.py "$OPERATION" "$TARGET_ENVIRONMENT"
-      - name: Remove temporary registry login
-        if: always()
-        run: if [ -n "${DOCKER_CONFIG:-}" ]; then rm -rf "$DOCKER_CONFIG"; fi
+          RELEASE_ID: ${{ needs.dev.outputs.release-id }}
+        run: python3 scripts/delivery.py wait dev --bundle "$RELEASE_ID"
+  qa:
+    name: 03 - Promote the verified bundle to QA
+    needs: [dev, verify-dev]
+    if: needs.dev.outputs.active == 'true'
+    permissions:
+      contents: read
+      packages: read
+    uses: ./.github/workflows/delivery-stage.yml
+    with:
+      environment: qa
+      release-id: ${{ needs.dev.outputs.release-id }}
+  verify-qa:
+    name: 04 - QA rollout and smoke gate
+    needs: [dev, qa]
+    if: needs.dev.outputs.active == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      statuses: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: main
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Wait for exact QA bundle and trusted smoke evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NARX_DEPLOYMENT_BOT_LOGIN: ${{ vars.NARX_DEPLOYMENT_BOT_LOGIN }}
+          RELEASE_ID: ${{ needs.dev.outputs.release-id }}
+        run: python3 scripts/delivery.py wait qa --bundle "$RELEASE_ID"
+  production-pr:
+    name: 05 - Request Production PR approval
+    needs: [dev, verify-qa]
+    if: needs.dev.outputs.active == 'true'
+    permissions:
+      contents: read
+      packages: read
+    uses: ./.github/workflows/delivery-stage.yml
+    with:
+      environment: production
+      release-id: ${{ needs.dev.outputs.release-id }}
+  production:
+    name: 06 - Approved Production rollout and smoke gate
+    if: github.repository == 'Narx-Space-Prod/platform-gitops' && vars.DELIVERY_ENABLED == 'true' && github.event_name == 'pull_request' && github.event.pull_request.merged == true && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      statuses: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: main
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Verify the approved Production release deployment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NARX_DEPLOYMENT_BOT_LOGIN: ${{ vars.NARX_DEPLOYMENT_BOT_LOGIN }}
+        run: python3 scripts/delivery.py observe-production
+  summary:
+    name: Delivery overview and next action
+    needs: [dev, verify-dev, qa, verify-qa, production-pr, production]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Publish the single entrypoint overview
+        env:
+          STAGES: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          stages=json.loads(os.environ['STAGES'])
+          dev=stages['dev'].get('outputs',{})
+          production=stages['production-pr'].get('outputs',{})
+          labels={'dev':'Prepare immutable Dev release','verify-dev':'Dev deployment + smoke',
+                  'qa':'Promote QA','verify-qa':'QA deployment + smoke',
+                  'production-pr':'Request Production PR approval','production':'Observe approved Production deployment'}
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as output:
+              output.write('## Commerce delivery\n\n')
+              if dev.get('release-id'):
+                  output.write('Release: `'+dev['release-id']+'`\n\n')
+              output.write('| Stage | Job result |\n| --- | --- |\n')
+              for key,label in labels.items():
+                  output.write(f"| {label} | {stages[key]['result']} |\n")
+              if production.get('pr-url'):
+                  output.write('\n[Production approval PR]('+production['pr-url']+'). Production is not marked deployed by this request; after merge, its rollout appears as a linked continuation in this same workflow.\n')
+              if dev.get('active')=='false':
+                  output.write('\nNo new promotion is needed: the current bundle already has trusted healthy evidence in all environments.\n')
+              output.write('\n[All Commerce Delivery runs](https://github.com/Narx-Space-Prod/platform-gitops/actions/workflows/delivery.yml) · [Recovery](https://github.com/Narx-Space-Prod/platform-gitops/actions/workflows/recovery.yml)\n')
+          PY

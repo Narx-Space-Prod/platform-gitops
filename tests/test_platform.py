@@ -316,13 +316,16 @@ class PlatformPolicy(unittest.TestCase):
             self.assertEqual(annotations['notifications.argoproj.io/subscribe.narx-slack-'+event+'.slack'],'')
             self.assertNotIn('notifications.argoproj.io/subscribe.narx-slack-'+event+'.webhook',annotations)
         workflow=yaml.load((ROOT/'.github/workflows/delivery.yml').read_text(),Loader=yaml.BaseLoader)
-        self.assertIn('status',workflow['on'])
-        self.assertNotIn('concurrency',workflow)
-        self.assertEqual(workflow['jobs']['release']['concurrency']['group'],'release-operations')
-        guard=workflow['jobs']['release']['if']
+        self.assertNotIn('status',workflow['on'])
+        self.assertIn('release-operations',workflow['concurrency']['group'])
+        recovery=yaml.load((ROOT/'.github/workflows/recovery.yml').read_text(),Loader=yaml.BaseLoader)
+        self.assertIn('status',recovery['on'])
+        self.assertNotIn('concurrency',recovery)
+        self.assertEqual(recovery['jobs']['recovery']['concurrency']['group'],'release-recovery')
+        guard=recovery['jobs']['recovery']['if']
         for clause in ('github.event.sender.login == vars.NARX_DEPLOYMENT_BOT_LOGIN',
-                       'github.event.context', 'github.event.state', 'refs/heads/main',
-                       'narx/deploy-dev', 'narx/deploy-qa', 'narx/deploy-production'):
+                       'github.event.context', "github.event.state == 'failure'", 'refs/heads/main',
+                       'narx/deploy-qa', 'narx/deploy-production'):
             self.assertIn(clause,guard)
         config=json.loads((ROOT/'applications/notifications.json').read_text())['data']
         for event in ('healthy','failed'):

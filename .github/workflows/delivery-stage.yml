@@ -1,0 +1,89 @@
+name: Reusable release stage
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        required: true
+        type: string
+      operation:
+        default: stage
+        type: string
+      release-id:
+        default: ''
+        type: string
+    outputs:
+      release-id:
+        value: ${{ jobs.advance.outputs.release-id }}
+      active:
+        value: ${{ jobs.advance.outputs.active }}
+      pr-number:
+        value: ${{ jobs.advance.outputs.pr-number }}
+      pr-url:
+        value: ${{ jobs.advance.outputs.pr-url }}
+
+permissions:
+  contents: read
+
+jobs:
+  advance:
+    name: Prepare immutable release
+    if: github.repository == 'Narx-Space-Prod/platform-gitops' && github.ref == 'refs/heads/main' && vars.DELIVERY_ENABLED == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: gitops-release
+    permissions:
+      contents: read
+      packages: read
+    outputs:
+      release-id: ${{ steps.stage.outputs.release-id }}
+      active: ${{ steps.stage.outputs.active }}
+      pr-number: ${{ steps.stage.outputs.pr-number }}
+      pr-url: ${{ steps.stage.outputs.pr-url }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Authenticate read-only GHCR verification
+        env:
+          REGISTRY_TOKEN: ${{ github.token }}
+        run: |
+          export DOCKER_CONFIG="$RUNNER_TEMP/narx-docker-verify"
+          printf 'DOCKER_CONFIG=%s\n' "$DOCKER_CONFIG" >> "$GITHUB_ENV"
+          printf '%s' "$REGISTRY_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: v3.1.4
+      - name: Mint short-lived GitOps PR token
+        id: app
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          app-id: ${{ vars.NARX_RELEASE_APP_ID }}
+          private-key: ${{ secrets.NARX_RELEASE_APP_PRIVATE_KEY }}
+          owner: Narx-Space-Prod
+          repositories: platform-gitops
+          permission-contents: write
+          permission-pull-requests: write
+      - name: Configure authenticated Git transport without storing a credential in the checkout
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+        run: gh auth setup-git
+      - name: Prepare exactly this delivery stage
+        id: stage
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          NARX_DEPLOYMENT_BOT_LOGIN: ${{ vars.NARX_DEPLOYMENT_BOT_LOGIN }}
+          TARGET_ENVIRONMENT: ${{ inputs.environment }}
+          EXPECTED_BUNDLE: ${{ inputs.release-id }}
+          OPERATION: ${{ inputs.operation }}
+        run: |
+          case "$OPERATION" in
+            stage) python3 scripts/delivery.py stage "$TARGET_ENVIRONMENT" --bundle "$EXPECTED_BUNDLE" ;;
+            recover|rollback) python3 scripts/delivery.py "$OPERATION" "$TARGET_ENVIRONMENT" ;;
+            *) echo 'Unsupported release operation.' >&2; exit 1 ;;
+          esac
+      - name: Remove temporary registry login
+        if: always()
+        run: if [ -n "${DOCKER_CONFIG:-}" ]; then rm -rf "$DOCKER_CONFIG"; fi

@@ -46,3 +46,5 @@ jobs:
             -v "$RUNNER_TEMP/narx-rules:/work:ro" --entrypoint /bin/promtool \
             prom/prometheus@sha256:efd719c99d83b060d9daefdcf00360461adf279f45ef5391f8d111892118753e \
             test rules /work/rules.test.yml
+      - name: Test delivery graph and evidence gates
+        run: python3 -m unittest discover -s tests -p 'test_delivery_stages.py' -v
