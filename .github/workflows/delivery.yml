@@ -1,6 +1,7 @@
 name: Release operations
 
 on:
+  status:
   repository_dispatch:
     types: [release-published]
   schedule:
@@ -19,15 +20,20 @@ on:
 permissions:
   contents: read
 
-# Reconciliation reads all release records afresh. Coalescing notifications cannot lose a component.
-concurrency:
-  group: release-operations
-  cancel-in-progress: false
-
 jobs:
   release:
     name: Verify release and propose GitOps change
-    if: vars.DELIVERY_ENABLED == 'true' && github.ref == 'refs/heads/main'
+    if: >-
+      vars.DELIVERY_ENABLED == 'true' && github.ref == 'refs/heads/main' &&
+      (github.event_name != 'status' ||
+       (github.event.sender.login == vars.NARX_DEPLOYMENT_BOT_LOGIN &&
+        contains(fromJSON('["narx/deploy-dev","narx/deploy-qa","narx/deploy-production"]'), github.event.context) &&
+        contains(fromJSON('["success","failure"]'), github.event.state)))
+    # Only eligible jobs enter this queue; unrelated/pending statuses cannot
+    # displace a trusted queued deployment event. Reconcile always reads fresh state.
+    concurrency:
+      group: release-operations
+      cancel-in-progress: false
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     environment: gitops-release

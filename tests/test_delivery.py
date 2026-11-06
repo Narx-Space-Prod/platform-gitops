@@ -204,6 +204,8 @@ class DeliveryPolicy(unittest.TestCase):
                     return original_run(*args, **kwargs)
                 if args[1:3] == ('pr','list'):
                     return json.dumps(existing)
+                if args[1:3] == ('pr','view'):
+                    return json.dumps({'state':'OPEN','headRefOid':original_run('git','rev-parse','HEAD'),'autoMergeRequest':None})
                 if args[1:3] == ('pr','create'):
                     created.append(args)
                 return ''
@@ -238,7 +240,7 @@ class DeliveryPolicy(unittest.TestCase):
 
     def test_auto_merge_is_limited_to_dev_qa_and_pins_the_commit(self):
         for environment in ('dev', 'qa', 'production'):
-            with self.subTest(environment=environment), patch.object(d, 'run', return_value='a'*40) as command:
+            with self.subTest(environment=environment), patch.object(d, 'run', side_effect=lambda *a: 'a'*40 if a[0]=='git' else json.dumps({'state':'OPEN','headRefOid':'a'*40,'autoMergeRequest':None})) as command:
                 d.enable_release_auto_merge(environment, 'release/example')
                 if environment == 'production':
                     command.assert_not_called()
@@ -248,6 +250,40 @@ class DeliveryPolicy(unittest.TestCase):
                                             '--match-head-commit', 'a'*40)
         with self.assertRaises(ValueError):
             d.enable_release_auto_merge('unknown', 'release/example')
+
+    def test_reconcile_waits_for_pending_target_without_bypassing_health(self):
+        facts=copy.deepcopy(self.facts)
+        facts['catalogue']['digest']='sha256:'+'c'*64
+        states={e:d.bundle(self.facts) for e in d.ENVIRONMENTS}
+        states['dev']=d.bundle(facts)
+        def read(path):return states[Path(path).parent.name]
+        with patch.object(d,'run',return_value='d'*40), patch.object(d,'read',side_effect=read), \
+             patch.object(d,'released_facts',return_value=facts), \
+             patch.object(d,'healthy',side_effect=lambda revision,env,state='success': env=='dev'), \
+             patch.object(d,'open_pr') as propose:
+            d.reconcile('reconcile')
+            propose.assert_not_called()
+
+    def test_auto_merge_waits_for_exact_head_and_does_not_merge_a_different_head(self):
+        def state(head, **extra):
+            return json.dumps(dict(state='OPEN',headRefOid=head,autoMergeRequest=None,**extra))
+        with patch.object(d,'run',side_effect=['a'*40,state('b'*40),state('a'*40),'']) as run, patch.object(d.time,'sleep'):
+            d.enable_release_auto_merge('qa','release/test')
+            self.assertEqual(run.call_args.args[-1],'a'*40)
+        with patch.object(d,'run',side_effect=['a'*40]+[state('b'*40)]*5) as run, patch.object(d.time,'sleep'):
+            with self.assertRaisesRegex(ValueError,'expected commit'):
+                d.enable_release_auto_merge('dev','release/test')
+            self.assertFalse(any(c.args[1:3]==('pr','merge') for c in run.call_args_list))
+
+    def test_auto_merge_is_idempotent_and_recovers_from_github_mutation_race(self):
+        enabled=json.dumps({'state':'OPEN','headRefOid':'a'*40,'autoMergeRequest':{'enabledAt':'now'}})
+        with patch.object(d,'run',side_effect=['a'*40,enabled]) as run:
+            d.enable_release_auto_merge('dev','release/test')
+            self.assertEqual(run.call_count,2)
+        merged=json.dumps({'state':'MERGED','headRefOid':'a'*40,'autoMergeRequest':None})
+        opened=json.dumps({'state':'OPEN','headRefOid':'a'*40,'autoMergeRequest':None})
+        with patch.object(d,'run',side_effect=['a'*40,opened,subprocess.CalledProcessError(1,['gh']),merged]), patch.object(d.time,'sleep'):
+            d.enable_release_auto_merge('qa','release/test')
 
     def test_bootstrap_is_non_deployable_and_has_no_fake_images(self):
         value = {'release': {'ready': False, 'id': '', 'components': {}, 'previous': None},

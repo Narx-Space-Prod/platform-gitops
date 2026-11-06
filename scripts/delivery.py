@@ -12,6 +12,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import time
 
 ROOT = Path(__file__).resolve().parents[1]
 COMPONENTS = {'frontend': 'commerce-frontend', 'catalogue': 'commerce-catalogue',
@@ -197,9 +198,29 @@ def rollback(current, environment):
 
 def enable_release_auto_merge(environment, branch):
     require(environment in ENVIRONMENTS, 'unexpected promotion environment')
-    if environment in ('dev', 'qa'):
-        run('gh', 'pr', 'merge', branch, '--repo', 'Narx-Space-Prod/platform-gitops',
-            '--auto', '--squash', '--match-head-commit', run('git', 'rev-parse', 'HEAD'))
+    if environment == 'production':
+        return
+    expected = run('git', 'rev-parse', 'HEAD')
+    require(re.fullmatch('[a-f0-9]{40}', expected), 'invalid expected PR head')
+    for attempt in range(5):
+        # Git push can complete before GitHub updates its PR view. Never accept
+        # a different head or remove the match-head guard to work around lag.
+        pr = json.loads(run('gh', 'pr', 'view', branch, '--repo', 'Narx-Space-Prod/platform-gitops',
+                            '--json', 'state,headRefOid,autoMergeRequest'))
+        if pr['headRefOid'] == expected:
+            if pr['state'] == 'MERGED' or (pr['state'] == 'OPEN' and pr.get('autoMergeRequest')):
+                return
+            require(pr['state'] == 'OPEN', 'release PR is not open')
+            try:
+                run('gh', 'pr', 'merge', branch, '--repo', 'Narx-Space-Prod/platform-gitops',
+                    '--auto', '--squash', '--match-head-commit', expected)
+                return
+            except subprocess.CalledProcessError:
+                if attempt == 4:
+                    raise
+        if attempt < 4:
+            time.sleep(min(2 ** attempt, 4))
+    raise ValueError('GitHub PR head did not reach the expected commit; no merge requested')
 
 
 def open_pr(environment, value, reason):
@@ -307,6 +328,9 @@ def reconcile(operation, environment=None):
             continue
         facts = states[source]['release']['components']
         if release_id(facts) == states[target]['release']['id']:
+            continue
+        if validate(states[target]) and not healthy(revision, target):
+            print('Waiting for trusted healthy target evidence:', target)
             continue
         for fact in facts.values():
             verify_image(fact)
