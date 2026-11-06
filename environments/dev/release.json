@@ -126,7 +126,7 @@
         }
       },
       "environment": "dev",
-      "gitopsCommit": "49b2fc4fd56fea3da88b8eb76a7805f996ca209a"
+      "gitopsCommit": "645623e809bd1932a6c6a9987d26a37b76a5eb06"
     },
     "ready": true
   },
