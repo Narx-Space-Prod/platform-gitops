@@ -11,7 +11,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 NAMESPACE = 'narx-rollout-validation'
-IMAGE = 'narx-local/frontend:dev'
+IMAGE = os.environ.get('NARX_ROLLOUT_IMAGE', 'narx-local/frontend:dev')
 
 
 @unittest.skipUnless(os.environ.get('NARX_ROLLOUT_TEST') == '1', 'Opt-in kind Rollouts exercise')
@@ -33,9 +33,21 @@ class RolloutRecovery(unittest.TestCase):
                 time.sleep(2)
             self.fail('Timed out: ' + json.dumps(get('rollout', 'commerce-frontend').get('status', {})))
         self.assertFalse(kubectl('get', 'namespace', NAMESPACE, '--ignore-not-found', '-o', 'name'), 'Refusing to reuse an existing namespace')
-        subprocess.run(['kind','load','docker-image',IMAGE,'--name',context.removeprefix('kind-')],check=True)
+        if IMAGE.startswith('narx-local/'):
+            subprocess.run(['kind','load','docker-image',IMAGE,'--name',context.removeprefix('kind-')],check=True)
+        else:
+            self.assertRegex(IMAGE, r'^ghcr\.io/narx-space-prod/commerce-frontend@sha256:[0-9a-f]{64}$',
+                             'Use an explicit verified frontend digest, not a mutable registry tag')
+            nodes=subprocess.check_output(['kind','get','nodes','--name',context.removeprefix('kind-')],text=True).split()
+            self.assertTrue(nodes,'No kind nodes found')
+            for node in nodes:
+                subprocess.run(['docker','exec',node,'crictl','inspecti',IMAGE],check=True,
+                               stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+
         kubectl('create','namespace',NAMESPACE)
         try:
+            kubectl('label','namespace',NAMESPACE,'pod-security.kubernetes.io/enforce=restricted',
+                    'pod-security.kubernetes.io/enforce-version=v1.34')
             with tempfile.TemporaryDirectory() as directory:
                 fixture=Path(directory)/'release.json'
                 subprocess.run(['python3',str(ROOT/'scripts/delivery.py'),'fixtures',str(fixture)],check=True)
@@ -75,17 +87,40 @@ class RolloutRecovery(unittest.TestCase):
             for mode in ['pre','post']:
                 container['env']=[{'name':'REVISION','value':'bad-'+mode},{'name':'FAIL_MODE','value':mode}]
                 kubectl('-n',NAMESPACE,'apply','-f','-',input=json.dumps(rollout))
-                wait(lambda:get('rollout','commerce-frontend').get('status',{}).get('abort') is True)
+                generation=get('rollout','commerce-frontend')['metadata']['generation']
+                active_revisions=set()
+                def rejected():
+                    current=get('rollout','commerce-frontend')
+                    selector=get('service','commerce-frontend')['spec']['selector']['rollouts-pod-template-hash']
+                    if selector!=stable:
+                        active_revisions.add(revision())
+                    status=current.get('status',{})
+                    return (str(status.get('observedGeneration'))==str(generation)
+                            and status.get('currentPodHash')!=stable and status.get('abort') is True)
+                wait(rejected)
+                candidate=get('rollout','commerce-frontend')['status']['currentPodHash']
+                analyses=json.loads(kubectl('-n',NAMESPACE,'get','analysisruns','-o','json'))['items']
+                suffix='-pre' if mode=='pre' else '-post'
+                rejected_analysis=[a for a in analyses if candidate in a['metadata']['name']
+                                   and a['metadata']['name'].endswith(suffix)
+                                   and a.get('status',{}).get('phase') in ('Failed','Error')]
+                self.assertTrue(rejected_analysis,'Expected the current candidate analysis to fail')
+                if mode=='pre':self.assertFalse(active_revisions,'A rejected preview received active traffic')
+                else:self.assertIn('bad-post',active_revisions,'Post-switch failure was never observed on active traffic')
                 wait(lambda:get('service','commerce-frontend')['spec']['selector']['rollouts-pod-template-hash']==stable)
                 wait(lambda:revision()=='stable')
+                print(json.dumps({'case':mode,'generation':generation,'candidateHash':candidate,
+                                  'activeRevisions':sorted(active_revisions),'finalRevision':revision(),
+                                  'failedAnalysis':[a['metadata']['name'] for a in rejected_analysis]}),flush=True)
                 print(mode+'-promotion rejection retained/restored stable traffic',flush=True)
             container['env']=[{'name':'REVISION','value':'recovered'},{'name':'FAIL_MODE','value':'none'}]
             kubectl('-n',NAMESPACE,'apply','-f','-',input=json.dumps(rollout))
-            wait(lambda:get('rollout','commerce-frontend').get('status',{}).get('phase')=='Healthy' and not get('rollout','commerce-frontend').get('status',{}).get('abort'))
+            generation=get('rollout','commerce-frontend')['metadata']['generation']
+            wait(lambda:str(get('rollout','commerce-frontend').get('status',{}).get('observedGeneration'))==str(generation) and get('rollout','commerce-frontend').get('status',{}).get('phase')=='Healthy' and not get('rollout','commerce-frontend').get('status',{}).get('abort'))
             wait(lambda:revision()=='recovered')
             print('Healthy candidate passed preview and active analysis; traffic promoted',flush=True)
         finally:
-            kubectl('delete','namespace',NAMESPACE,'--wait=false')
+            kubectl('delete','namespace',NAMESPACE,'--wait=true','--timeout=90s')
 
 
 if __name__=='__main__':unittest.main()
