@@ -148,3 +148,16 @@ Probe budgets explicitly allow five seconds for health checks and five minutes f
 Service updates use Argo sync waves: Orders API → cart → catalogue → publisher → worker → frontend, after the existing data/controller waves. Orders readiness depends on the database/queue; catalogue and frontend wait on upstream APIs. This limits concurrent Deployment surge to one role and avoids dependent previews consuming the quota needed by their upstream replacement. The frontend retains blue-green preview and active analysis. Rollout progress allows ten minutes, longer than the five-minute startup allowance. This orders GitOps changes; a laptop reboot still starts existing pods together, and host capacity must still be reserved.
 
 Live checkpoint, 2026-11-06: the reviewed 200-attempt/s QA fixture completed 15,401 requests with zero failures; HPA scaled 1 → 2 → 1 and no application/monitoring container restart increases were observed during the exercise. Dev application clients were temporarily paused with operator approval to reserve laptop capacity; data services stayed running, and Dev was restored afterward. This verifies bounded autoscaling mechanics and that availability check, not simultaneous three-environment peak capacity or rollback recovery.
+
+
+The opt-in Rollouts recovery fixture can reuse an already verified, immutable frontend artifact cached on **every** node of the selected kind cluster:
+
+```bash
+NARX_ROLLOUT_TEST=1 NARX_KUBE_CONTEXT=kind-narx-commerce \
+NARX_ROLLOUT_IMAGE=ghcr.io/narx-space-prod/commerce-frontend@sha256:d6390f4248ee46d583f8b9fef273ed5f02cca5a567a8df3047d656f4f772513d \
+python3 -m unittest discover -s tests -p test_rollout_local.py -v
+```
+
+The harness refuses mutable registry tags, missing cached images and an existing `narx-rollout-validation` namespace. It creates a fresh restricted namespace, uses the artifact only as a Node runtime for a synthetic service, exercises preview rejection, post-switch traffic recovery and healthy promotion, then removes the namespace. It does not modify Dev/QA/production releases or claim to verify full GitOps bundle rollback, application checkout or payment recovery. Reserve host headroom first. The local `narx-local/frontend:dev` path remains available for the original developer fixture.
+
+Recovery mechanics checkpoint, 2026-11-06: the isolated fixture passed preview rejection with stable traffic retained, observed the bad post-switch candidate serving before automatic recovery to stable, and promoted a healthy replacement through both analyses. The run completed in 342 seconds and its namespace was confirmed deleted. Dev clients were temporarily paused for capacity; QA and production releases were unchanged. This is direct Rollouts traffic-recovery evidence, separate from end-to-end GitOps bundle rollback.
