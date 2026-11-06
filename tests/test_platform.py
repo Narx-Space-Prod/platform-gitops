@@ -135,14 +135,18 @@ class PlatformPolicy(unittest.TestCase):
                         self.assertGreaterEqual(probe['failureThreshold']*probe['periodSeconds'],300)
                         self.assertEqual(probe['timeoutSeconds'],5)
 
-    def test_service_updates_follow_dependencies_with_one_surge_wave(self):
-        expected={'orders':0,'cart':1,'catalogue':2,'publisher':3,'worker':4,'frontend':5}
+    def test_service_updates_bound_surge_and_keep_java_roles_sequential(self):
+        expected={'orders':0,'cart':1,'catalogue':1,'publisher':3,'worker':4,'frontend':5}
         for env in ('dev','qa','production'):
             workloads=self.objects(env,'Deployment')+self.objects(env,'Rollout')
             for role,wave in expected.items():
                 workload=next(w for w in workloads if w['metadata']['name']=='commerce-'+role)
                 self.assertEqual(int(workload['metadata']['annotations']['argocd.argoproj.io/sync-wave']),wave)
                 self.assertGreater(workload['spec']['progressDeadlineSeconds'],300)
+                if role in {'orders','publisher','worker'}:
+                    resources=workload['spec']['template']['spec']['containers'][0]['resources']
+                    self.assertEqual(str(resources['limits']['cpu']),'1000m')
+                    self.assertEqual(resources['limits']['memory'],'448Mi' if role=='orders' else '320Mi')
                 if workload['kind']=='Deployment':
                     self.assertEqual(workload['spec']['strategy']['rollingUpdate'],{'maxSurge':1,'maxUnavailable':0})
 
@@ -160,11 +164,17 @@ class PlatformPolicy(unittest.TestCase):
                 replicas[name]=frontend_max if name=='commerce-frontend' else w['spec'].get('replicas',1)
             for category,quota in [('requests',1536),('limits',3072)]:
                 steady=sum(costs[name][category]*replicas[name] for name in costs)
-                for name in ['commerce-'+r for r in ('orders','cart','catalogue','publisher','worker','frontend')]:
-                    # A Deployment has one surge pod. Blue-green retains an entire stable set plus one analysis Job.
+                waves={}
+                for workload in workloads:
+                    name=workload['metadata']['name']
+                    if name not in {'commerce-'+r for r in ('orders','cart','catalogue','publisher','worker','frontend')}:
+                        continue
+                    wave=int(workload['metadata']['annotations']['argocd.argoproj.io/sync-wave'])
                     extra=costs[name][category]*(frontend_max if name=='commerce-frontend' else 1)
                     if name=='commerce-frontend' and env!='dev':extra+=32 if category=='requests' else 96
-                    self.assertLessEqual(steady+extra,quota,(env,category,name,steady+extra,quota))
+                    waves[wave]=waves.get(wave,0)+extra
+                for wave,extra in waves.items():
+                    self.assertLessEqual(steady+extra,quota,(env,category,wave,steady+extra,quota))
 
     def test_hpa_is_bounded_and_argo_leaves_only_frontend_replicas_to_it(self):
         self.assertEqual(self.objects('dev', 'HorizontalPodAutoscaler'), [])

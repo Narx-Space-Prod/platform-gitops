@@ -21,6 +21,8 @@ ALIASES = {'frontend': 'frontend', 'catalogue': 'catalogue', 'orders': 'orders',
            'cart': 'cart', 'publisher': 'orders', 'worker': 'orders'}
 ENVIRONMENTS = ('dev', 'qa', 'production')
 PREDICATE = 'https://narx.space/attestations/release/v1'
+# Positive results live only for this Python invocation, never across CI runs.
+_VERIFIED_IMAGES = set()
 
 
 def run(*args, input=None):
@@ -130,6 +132,9 @@ def verify_image(fact):
     reference = fact['image'] + '@' + fact['digest']
     expected = {k: fact[k] for k in ('repository', 'commit', 'component', 'runId')}
     expected.update(workflow='.github/workflows/ci.yml', ref='refs/heads/main')
+    verification_key = (reference, json.dumps(expected, sort_keys=True), tuple(builders))
+    if verification_key in _VERIFIED_IMAGES:
+        return
     for builder in builders:
         common = ['cosign', 'verify-attestation', '--certificate-identity',
                   'https://github.com/Narx-Space-Prod/platform-ci/.github/workflows/service.yml@' + builder,
@@ -146,6 +151,7 @@ def verify_image(fact):
                 bound = any(s.get('digest', {}).get('sha256') == fact['digest'].removeprefix('sha256:') for s in subjects)
                 if bound and statement.get('predicateType') == PREDICATE and statement.get('predicate') == expected:
                     run(*common, '--type', 'cyclonedx', reference)
+                    _VERIFIED_IMAGES.add(verification_key)
                     return
         except subprocess.CalledProcessError:
             continue

@@ -1,5 +1,6 @@
 """Release policy and recovery invariants, without registry or cloud access."""
 import copy
+import base64
 import json
 import os
 import subprocess
@@ -19,6 +20,30 @@ class DeliveryPolicy(unittest.TestCase):
             'image': 'ghcr.io/narx-space-prod/commerce-' + name,
             'digest': 'sha256:' + 'a' * 64, 'commit': 'b' * 40, 'runId': 12}
             for name, repo in d.COMPONENTS.items()}
+
+    def test_attestation_reuse_is_process_local_and_bound_to_source_digest_and_policy(self):
+        fact=self.facts['frontend']
+        predicate={k:fact[k] for k in ('repository','commit','component','runId')}
+        predicate.update(workflow='.github/workflows/ci.yml',ref='refs/heads/main')
+        statement={'subject':[{'digest':{'sha256':fact['digest'].removeprefix('sha256:')}}],
+                   'predicateType':d.PREDICATE,'predicate':predicate}
+        envelope=json.dumps({'payload':base64.b64encode(json.dumps(statement).encode()).decode()})
+        builders={'workflowCommits':['c'*40]}
+        d._VERIFIED_IMAGES.clear()
+        self.addCleanup(d._VERIFIED_IMAGES.clear)
+        with patch.object(d,'read',return_value=builders),patch.object(d,'run',return_value=envelope) as run:
+            d.verify_image(fact);d.verify_image(copy.deepcopy(fact))
+            self.assertEqual(run.call_count,2)  # provenance + SBOM, once each
+            for change in ({'digest':'sha256:'+'d'*64},{'commit':'e'*40},{'runId':13}):
+                with self.assertRaises(ValueError):d.verify_image({**fact,**change})
+            self.assertEqual(len(d._VERIFIED_IMAGES),1)  # failed results never enter the cache
+            calls=run.call_count
+            builders['workflowCommits']=['f'*40]
+            d.verify_image(fact)
+            self.assertEqual(run.call_count,calls+2)  # new trust policy forces both checks
+            d._VERIFIED_IMAGES.clear()
+            calls=run.call_count;d.verify_image(fact)
+            self.assertEqual(run.call_count,calls+2)  # new invocation verifies again
 
     def test_automatic_release_review_scope_rejects_human_forks_and_renames(self):
         author={'login':'narx-local-commerce-release[bot]','id':352511280,'type':'Bot'}

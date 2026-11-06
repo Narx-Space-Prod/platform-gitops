@@ -31,7 +31,7 @@ frontend:
   resources: {requests: {cpu: 25m, memory: 64Mi}, limits: {cpu: 250m, memory: 128Mi}}
 catalogue:
   enabled: false
-  syncWave: 2
+  syncWave: 1
   fullnameOverride: commerce-catalogue
   containerPort: 8081
   env: [{name: COMMERCE_URL, value: 'http://commerce-orders'}]
@@ -57,7 +57,7 @@ orders:
     - {name: RAZORPAY_KEY_ID, valueFrom: {secretKeyRef: {name: commerce-payments, key: RAZORPAY_KEY_ID, optional: true}}}
     - {name: RAZORPAY_KEY_SECRET, valueFrom: {secretKeyRef: {name: commerce-payments, key: RAZORPAY_KEY_SECRET, optional: true}}}
     - {name: RAZORPAY_WEBHOOK_SECRET, valueFrom: {secretKeyRef: {name: commerce-payments, key: RAZORPAY_WEBHOOK_SECRET, optional: true}}}
-  resources: {requests: {cpu: 50m, memory: 256Mi}, limits: {cpu: 500m, memory: 448Mi}}
+  resources: {requests: {cpu: 50m, memory: 256Mi}, limits: {cpu: 1000m, memory: 448Mi}}
 publisher:
   enabled: false
   syncWave: 3
@@ -73,7 +73,7 @@ publisher:
     - {name: DELIVERY_LOCAL, valueFrom: {configMapKeyRef: {name: commerce-settings, key: DELIVERY_LOCAL}}}
     - {name: DELIVERY_ENDPOINT, valueFrom: {configMapKeyRef: {name: commerce-settings, key: DELIVERY_ENDPOINT}}}
     - {name: AWS_REGION, valueFrom: {configMapKeyRef: {name: commerce-settings, key: AWS_REGION}}}
-  resources: &workerResources {requests: {cpu: 50m, memory: 192Mi}, limits: {cpu: 500m, memory: 320Mi}}
+  resources: &workerResources {requests: {cpu: 50m, memory: 192Mi}, limits: {cpu: 1000m, memory: 320Mi}}
 worker:
   enabled: false
   syncWave: 4
