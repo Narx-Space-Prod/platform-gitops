@@ -1,6 +1,11 @@
+{{- $access := .Values.global.publicAccess | default dict }}
+{{- $origin := .Values.publicOrigin }}
+{{- $secure := .Values.cookieSecure }}
+{{- if hasKey $access "origin" }}{{- $origin = $access.origin }}{{- end }}
+{{- if hasKey $access "secureCookies" }}{{- $secure = $access.secureCookies }}{{- end }}
 {{- if .Values.release.ready }}
 {{- if not .Values.localData.enabled }}
-{{- if or (not (hasPrefix "https://" .Values.publicOrigin)) (empty .Values.awsRegion) (not .Values.cookieSecure) (empty .Values.externalDataCIDRs) }}
+{{- if or (not (hasPrefix "https://" $origin)) (empty .Values.awsRegion) (not $secure) (empty .Values.externalDataCIDRs) }}
 {{- fail "managed-data deployments require HTTPS origin, AWS region, secure cookies and private data CIDRs" }}
 {{- end }}
 {{- end }}
@@ -11,8 +16,8 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-wave: "-2"
 data:
-  PUBLIC_ORIGIN: {{ required "publicOrigin is required" .Values.publicOrigin | quote }}
-  COOKIE_SECURE: {{ .Values.cookieSecure | quote }}
+  PUBLIC_ORIGIN: {{ required "publicOrigin is required" $origin | quote }}
+  COOKIE_SECURE: {{ $secure | quote }}
   AWS_REGION: {{ .Values.awsRegion | quote }}
   DELIVERY_LOCAL: {{ .Values.localData.enabled | quote }}
   DELIVERY_ENDPOINT: {{ ternary "http://elasticmq:9324" "" .Values.localData.enabled | quote }}

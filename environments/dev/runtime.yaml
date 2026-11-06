@@ -1,6 +1,8 @@
 environment: dev
-publicOrigin: http://localhost:18080
-cookieSecure: false
+global:
+  publicAccess:
+    origin: https://narx-dev.narx.space
+    secureCookies: true
 localData:
   enabled: true
   storageClass: standard

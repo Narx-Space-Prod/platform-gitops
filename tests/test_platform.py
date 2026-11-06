@@ -65,6 +65,21 @@ class PlatformPolicy(unittest.TestCase):
                     self.assertIn('delivery.narx.space/source-commit',annotations)
                 self.assertEqual(changed,['commerce-catalogue'],env)
 
+    def test_public_access_updates_only_frontend_and_configmap(self):
+        with tempfile.TemporaryDirectory() as directory:
+            fixture=Path(directory)/'release.json'
+            fixture.write_text((ROOT/'environments/dev/release.json').read_text())
+            values=[]
+            for origin in ('https://first.invalid','https://second.invalid'):
+                docs=list(yaml.safe_load_all(subprocess.check_output(['helm','template','commerce',str(ROOT/'charts/commerce'),
+                    '-n','commerce-dev','-f',str(ROOT/'environments/dev/runtime.yaml'),'-f',str(fixture),
+                    '--set-string','global.publicAccess.origin='+origin],text=True)))
+                settings=next(d for d in docs if d and d['kind']=='ConfigMap' and d['metadata']['name']=='commerce-settings')
+                self.assertEqual(settings['data']['PUBLIC_ORIGIN'],origin)
+                self.assertEqual(settings['data']['COOKIE_SECURE'],'true')
+                values.append({d['metadata']['name']:d['spec']['template'] for d in docs if d and d['kind'] in ('Deployment','Rollout')})
+            self.assertEqual([name for name in values[0] if values[0][name]!=values[1][name]],['commerce-frontend'])
+
     def test_application_set_is_bounded_to_dedicated_local_cluster(self):
         resources=json.loads((ROOT/'applications/local/commerce.json').read_text())['items']
         self.assertEqual([r['kind'] for r in resources],['AppProject','ApplicationSet'])
