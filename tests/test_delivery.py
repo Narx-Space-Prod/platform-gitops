@@ -35,6 +35,14 @@ class DeliveryPolicy(unittest.TestCase):
         # Owned files retain GitHub's code-owner review requirement.
         d.validate_review_scope([{'filename':'environments/production/release.json'}], {}, repo)
 
+    def test_trusted_verifier_fetches_history_for_deployment_evidence(self):
+        import yaml
+        workflow=yaml.safe_load((d.ROOT/'.github/workflows/release-verification.yml').read_text())
+        checkout=next(step for step in workflow['jobs']['verify']['steps'] if step.get('uses','').startswith('actions/checkout@'))
+        self.assertEqual(checkout['with']['ref'],'${{ github.event.pull_request.base.sha }}')
+        self.assertEqual(checkout['with']['fetch-depth'],0)
+        self.assertFalse(checkout['with']['persist-credentials'])
+
     def test_all_components_and_background_roles_share_verified_images(self):
         value = d.bundle(self.facts)
         self.assertTrue(d.validate(value))
