@@ -89,6 +89,14 @@ class PlatformPolicy(unittest.TestCase):
         rules=[line.strip() for line in (ROOT/'.github/CODEOWNERS').read_text().splitlines()
                if line.strip() and not line.lstrip().startswith('#')]
         self.assertEqual(rules, ['* @Narx-Space-Prod/code-reviewers', '/environments/dev/release.json', '/environments/qa/release.json'])
+        ruleset=json.loads((ROOT/'policy/review-ruleset.json').read_text())
+        self.assertEqual(ruleset['enforcement'],'active')
+        self.assertEqual(ruleset['bypass_actors'],[])
+        self.assertEqual(ruleset['conditions']['ref_name'],{'include':['refs/heads/main'],'exclude':[]})
+        reviewer=ruleset['rules'][0]['parameters']['required_reviewers'][0]
+        self.assertEqual(reviewer,{'minimum_approvals':1,'file_patterns':['**','!environments/dev/release.json','!environments/qa/release.json'],
+                                  'reviewer':{'id':20254182,'type':'Team'}})
+
 
     def test_container_ports_declare_protocol_to_avoid_crd_default_drift(self):
         for env in ('dev', 'qa', 'production'):
