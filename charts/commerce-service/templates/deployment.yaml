@@ -50,7 +50,19 @@ spec:
         app.kubernetes.io/part-of: narx-commerce
         app.kubernetes.io/name: {{ .Chart.Name }}
         app.kubernetes.io/instance: {{ include "commerce-service.fullname" . }}
-      {{- with omit .Values.podAnnotations "delivery.narx.space/release" }}
+      {{- $annotations := omit .Values.podAnnotations "delivery.narx.space/release" }}
+      {{- $usesPublicAccess := false }}
+      {{- range .Values.env }}
+        {{- if and .valueFrom .valueFrom.configMapKeyRef }}
+          {{- if and (eq .valueFrom.configMapKeyRef.name "commerce-settings") (has .valueFrom.configMapKeyRef.key (list "PUBLIC_ORIGIN" "COOKIE_SECURE")) }}
+            {{- $usesPublicAccess = true }}
+          {{- end }}
+        {{- end }}
+      {{- end }}
+      {{- if and $usesPublicAccess .Values.global.publicAccess }}
+        {{- $_ := set $annotations "checksum/public-access" (.Values.global.publicAccess | toJson | sha256sum) }}
+      {{- end }}
+      {{- with $annotations }}
       annotations:
         {{- toYaml . | nindent 8 }}
       {{- end }}

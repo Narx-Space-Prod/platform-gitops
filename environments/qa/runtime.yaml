@@ -1,6 +1,8 @@
 environment: qa
-publicOrigin: http://localhost:18081
-cookieSecure: false
+global:
+  publicAccess:
+    origin: https://narx-qa.narx.space
+    secureCookies: true
 localData:
   enabled: true
   storageClass: standard
