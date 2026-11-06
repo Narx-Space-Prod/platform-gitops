@@ -6,6 +6,7 @@ fullnameOverride: ""
 imagePullSecrets: []
 global: {}
 replicaCount: 1
+syncWave: 0
 containerPort: 8080
 service:
   enabled: true

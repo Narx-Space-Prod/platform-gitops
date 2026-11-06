@@ -19,6 +19,7 @@ release:
   previous: null
 frontend:
   enabled: false
+  syncWave: 5
   fullnameOverride: commerce-frontend
   env:
     - {name: CATALOGUE_URL, value: 'http://commerce-catalogue'}
@@ -30,18 +31,21 @@ frontend:
   resources: {requests: {cpu: 25m, memory: 64Mi}, limits: {cpu: 250m, memory: 128Mi}}
 catalogue:
   enabled: false
+  syncWave: 2
   fullnameOverride: commerce-catalogue
   containerPort: 8081
   env: [{name: COMMERCE_URL, value: 'http://commerce-orders'}]
   resources: {requests: {cpu: 25m, memory: 32Mi}, limits: {cpu: 250m, memory: 64Mi}}
 cart:
   enabled: false
+  syncWave: 1
   fullnameOverride: commerce-cart
   containerPort: 8082
   env: [{name: REDIS_URL, valueFrom: {secretKeyRef: {name: commerce-runtime, key: REDIS_URL}}}]
   resources: {requests: {cpu: 25m, memory: 64Mi}, limits: {cpu: 250m, memory: 128Mi}}
 orders:
   enabled: false
+  syncWave: 0
   fullnameOverride: commerce-orders
   containerPort: 8083
   env:
@@ -56,6 +60,7 @@ orders:
   resources: {requests: {cpu: 50m, memory: 256Mi}, limits: {cpu: 500m, memory: 448Mi}}
 publisher:
   enabled: false
+  syncWave: 3
   fullnameOverride: commerce-publisher
   containerPort: 8083
   env: &deliveryEnv
@@ -71,6 +76,7 @@ publisher:
   resources: &workerResources {requests: {cpu: 50m, memory: 192Mi}, limits: {cpu: 500m, memory: 320Mi}}
 worker:
   enabled: false
+  syncWave: 4
   fullnameOverride: commerce-worker
   containerPort: 8083
   resources: *workerResources
