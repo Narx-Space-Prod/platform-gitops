@@ -20,6 +20,21 @@ class DeliveryPolicy(unittest.TestCase):
             'digest': 'sha256:' + 'a' * 64, 'commit': 'b' * 40, 'runId': 12}
             for name, repo in d.COMPONENTS.items()}
 
+    def test_automatic_release_review_scope_rejects_human_forks_and_renames(self):
+        author={'login':'narx-local-commerce-release[bot]','id':352511280,'type':'Bot'}
+        files=[{'filename':'environments/dev/release.json','status':'modified'}]
+        repo='Narx-Space-Prod/platform-gitops'
+        d.validate_review_scope(files, author, repo)
+        for changed_author,changed_repo,changed_files in [
+            ({**author,'id':1},repo,files), (author,'other/fork',files),
+            (author,repo,[{**files[0],'status':'removed'}]),
+            (author,repo,[{**files[0],'previous_filename':'environments/production/release.json'}]),
+            (author,repo,files+[{'filename':'environments/qa/release.json','status':'modified'}])]:
+            with self.assertRaises(ValueError):
+                d.validate_review_scope(changed_files,changed_author,changed_repo)
+        # Owned files retain GitHub's code-owner review requirement.
+        d.validate_review_scope([{'filename':'environments/production/release.json'}], {}, repo)
+
     def test_all_components_and_background_roles_share_verified_images(self):
         value = d.bundle(self.facts)
         self.assertTrue(d.validate(value))
