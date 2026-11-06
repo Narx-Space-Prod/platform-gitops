@@ -7,6 +7,9 @@ metadata:
   name: {{ include "commerce-service.fullname" . }}
   annotations:
     argocd.argoproj.io/sync-wave: {{ .Values.syncWave | quote }}
+    {{- with index .Values.podAnnotations "delivery.narx.space/release" }}
+    delivery.narx.space/release: {{ . | quote }}
+    {{- end }}
   labels:
     app.kubernetes.io/name: {{ .Chart.Name }}
     app.kubernetes.io/instance: {{ include "commerce-service.fullname" . }}
@@ -47,7 +50,7 @@ spec:
         app.kubernetes.io/part-of: narx-commerce
         app.kubernetes.io/name: {{ .Chart.Name }}
         app.kubernetes.io/instance: {{ include "commerce-service.fullname" . }}
-      {{- with .Values.podAnnotations }}
+      {{- with omit .Values.podAnnotations "delivery.narx.space/release" }}
       annotations:
         {{- toYaml . | nindent 8 }}
       {{- end }}

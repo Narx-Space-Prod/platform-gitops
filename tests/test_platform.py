@@ -33,6 +33,38 @@ class PlatformPolicy(unittest.TestCase):
 
     def objects(self,env,kind):return [d for d in self.rendered[env] if d['kind']==kind]
 
+    def test_catalogue_release_leaves_other_service_pod_templates_unchanged(self):
+        import copy
+        before=json.loads((ROOT/'environments/dev/release.json').read_text())
+        after=copy.deepcopy(before)
+        after['release']['id']='a'*64
+        names=('frontend','catalogue','orders','cart','publisher','worker')
+        for name in names:
+            after[name]['podAnnotations']['delivery.narx.space/release']='a'*64
+        after['catalogue']['image']['digest']='sha256:'+'b'*64
+        after['catalogue']['podAnnotations']['delivery.narx.space/source-commit']='c'*40
+        with tempfile.TemporaryDirectory() as directory:
+            paths=[]
+            for label,value in [('before',before),('after',after)]:
+                path=Path(directory)/(label+'.json')
+                path.write_text(json.dumps(value));paths.append(path)
+            for env in ('dev','qa','production'):
+                rendered=[]
+                for path in paths:
+                    text=subprocess.check_output(['helm','template','commerce',str(ROOT/'charts/commerce'),
+                        '-n','commerce-'+env,'-f',str(ROOT/'environments'/env/'runtime.yaml'),'-f',str(path)],text=True)
+                    rendered.append({d['metadata']['name']:d for d in yaml.safe_load_all(text)
+                        if d and d['kind'] in ('Deployment','Rollout') and d['metadata']['name'] in {'commerce-'+n for n in names}})
+                changed=[]
+                for name,old in rendered[0].items():
+                    new=rendered[1][name]
+                    if old['spec']['template']!=new['spec']['template']:changed.append(name)
+                    self.assertEqual(new['metadata']['annotations']['delivery.narx.space/release'],'a'*64)
+                    annotations=new['spec']['template']['metadata'].get('annotations',{})
+                    self.assertNotIn('delivery.narx.space/release',annotations)
+                    self.assertIn('delivery.narx.space/source-commit',annotations)
+                self.assertEqual(changed,['commerce-catalogue'],env)
+
     def test_application_set_is_bounded_to_dedicated_local_cluster(self):
         resources=json.loads((ROOT/'applications/local/commerce.json').read_text())['items']
         self.assertEqual([r['kind'] for r in resources],['AppProject','ApplicationSet'])
