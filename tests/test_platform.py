@@ -281,18 +281,44 @@ class PlatformPolicy(unittest.TestCase):
         for event in ['deployed','failed']:
             trigger=yaml.safe_load(config['trigger.narx-slack-'+event])[0]
             self.assertEqual(trigger['oncePer'],'app.status.operationState.startedAt')
-            if event=='deployed':self.assertIn("#.hookPhase == 'Succeeded'",trigger['when']);self.assertIn('syncResult.revision == app.status.sync.revision',trigger['when'])
+            if event=='deployed':
+                self.assertIn("#.hookPhase == 'Succeeded'",trigger['when'])
+                self.assertIn("app.status.sync.status == 'Synced'",trigger['when'])
+                self.assertNotIn('syncResult.revision == app.status.sync.revision',trigger['when'])
             body=yaml.safe_load(config['template.narx-slack-'+event])['webhook']['slack']['body']
             with tempfile.TemporaryDirectory() as directory:
                 chart=Path(directory);(chart/'templates').mkdir()
                 (chart/'Chart.yaml').write_text('apiVersion: v2\nname: notification-check\nversion: 0.1.0\n')
                 (chart/'body.txt').write_text(body)
                 (chart/'templates/config.yaml').write_text('apiVersion: v1\nkind: ConfigMap\nmetadata: {name: notification-check}\ndata:\n  message: {{ tpl (.Files.Get "body.txt") .Values | quote }}\n')
-                (chart/'values.yaml').write_text(yaml.safe_dump({'app':{'metadata':{'name':'narx-commerce-qa','labels':{'delivery.narx.space/environment':'qa'}},'status':{'sync':{'revision':'a'*40}}}}))
+                (chart/'values.yaml').write_text(yaml.safe_dump({'app':{'metadata':{'name':'narx-commerce-qa','labels':{'delivery.narx.space/environment':'qa'}},'status':{'sync':{'revision':'b'*40},'operationState':{'syncResult':{'revision':'a'*40}}}}}))
                 rendered=yaml.safe_load(subprocess.check_output(['helm','template','message',str(chart)],text=True))
                 message=json.loads(rendered['data']['message'])['text']
                 self.assertIn('Narx qa',message)
+                self.assertIn('a'*40,message)
+                self.assertNotIn('b'*40,message)
                 self.assertNotIn('webhook',message)
+
+    def test_deployment_events_use_trusted_observer_and_named_slack_webhook(self):
+        appset=json.loads((ROOT/'applications/local/commerce.json').read_text())['items'][1]
+        annotations=appset['spec']['template']['metadata']['annotations']
+        for event in ('deployed','failed'):
+            self.assertEqual(annotations['notifications.argoproj.io/subscribe.narx-slack-'+event+'.slack'],'')
+            self.assertNotIn('notifications.argoproj.io/subscribe.narx-slack-'+event+'.webhook',annotations)
+        workflow=yaml.load((ROOT/'.github/workflows/delivery.yml').read_text(),Loader=yaml.BaseLoader)
+        self.assertIn('status',workflow['on'])
+        self.assertNotIn('concurrency',workflow)
+        self.assertEqual(workflow['jobs']['release']['concurrency']['group'],'release-operations')
+        guard=workflow['jobs']['release']['if']
+        for clause in ('github.event.sender.login == vars.NARX_DEPLOYMENT_BOT_LOGIN',
+                       'github.event.context', 'github.event.state', 'refs/heads/main',
+                       'narx/deploy-dev', 'narx/deploy-qa', 'narx/deploy-production'):
+            self.assertIn(clause,guard)
+        config=json.loads((ROOT/'applications/notifications.json').read_text())['data']
+        for event in ('healthy','failed'):
+            template=yaml.safe_load(config['template.narx-'+event])['github']
+            self.assertIn('.app.status.operationState.syncResult.revision',template['revisionPath'])
+            self.assertNotIn('.app.status.sync.revision',template['revisionPath'])
 
     def test_dashboard_and_alert_queries_are_project_scoped(self):
         for dashboard in self.monitoring['dashboards'].values():
