@@ -44,6 +44,19 @@ def write(path, value):
     Path(path).write_text(json.dumps(value, indent=2, sort_keys=True) + '\n')
 
 
+def validate_review_scope(files, author, head_repository):
+    automatic = {'environments/dev/release.json', 'environments/qa/release.json'}
+    paths = {entry['filename'] for entry in files}
+    if paths and paths <= automatic:
+        require(len(files) == 1, 'automatic PR must change exactly one environment release')
+        require(author.get('login') == 'narx-local-commerce-release[bot]'
+                and author.get('id') == 352511280 and author.get('type') == 'Bot',
+                'automatic release PR must originate from the dedicated release App')
+        require(head_repository == 'Narx-Space-Prod/platform-gitops', 'automatic release branch must be internal')
+        require(files[0].get('status') == 'modified' and not files[0].get('previous_filename'),
+                'automatic PR may only modify existing release state')
+
+
 def facts_valid(fact, component=None):
     require(isinstance(fact, dict), 'release fact must be an object')
     require(set(fact) == {'component', 'image', 'digest', 'repository', 'commit', 'runId'}, 'unexpected release fact fields')
@@ -219,12 +232,14 @@ def open_pr(environment, value, reason):
         enable_release_auto_merge(environment, branch)
         return
     lines = [f'{reason.capitalize()} **{environment}** to `{value["release"]["id"]}`.', '',
-             'Promotes existing immutable images; no rebuild. All required CI checks apply. All environments require code-owner approval. Dev and QA merge automatically after approval and checks; production is merged explicitly.', '']
+             'Promotes existing immutable images; no rebuild. All required CI checks apply. Dev and QA release PRs merge automatically after trusted checks; production and platform changes require code-owner review and explicit merge.', '']
     lines += [f'- {name}: `{f["image"]}@{f["digest"]}`; source `{f["repository"]}@{f["commit"]}`' for name, f in value['release']['components'].items()]
     body = ROOT / '.git/release-pr.md'; body.write_text('\n'.join(lines) + '\n')
-    run('gh', 'pr', 'create', '--repo', 'Narx-Space-Prod/platform-gitops', '--base', 'main', '--head', branch,
-        '--title', f'{reason}: {environment} {value["release"]["id"][:16]}', '--body-file', str(body),
-        '--reviewer', 'Code-S-12')
+    args = ['gh', 'pr', 'create', '--repo', 'Narx-Space-Prod/platform-gitops', '--base', 'main', '--head', branch,
+            '--title', f'{reason}: {environment} {value["release"]["id"][:16]}', '--body-file', str(body)]
+    if environment == 'production':
+        args += ['--reviewer', 'Code-S-12']
+    run(*args)
     enable_release_auto_merge(environment, branch)
 
 

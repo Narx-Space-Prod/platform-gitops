@@ -39,6 +39,11 @@ jobs:
           root = 'repos/' + os.environ['GITHUB_REPOSITORY']
           pages = json.loads(subprocess.check_output(['gh','api','--paginate','--slurp',root + '/pulls/' + os.environ['PR_NUMBER'] + '/files?per_page=100'],text=True))
           files = [entry for page in pages for entry in page]
+          import sys
+          sys.path.insert(0, 'scripts')
+          from delivery import validate_review_scope
+          pr = json.loads(pathlib.Path(os.environ['GITHUB_EVENT_PATH']).read_text())['pull_request']
+          validate_review_scope(files, pr['user'], pr['head']['repo']['full_name'])
           allowed = {'environments/'+e+'/release.json' for e in ['dev','qa','production']}
           candidates = []
           for entry in files:

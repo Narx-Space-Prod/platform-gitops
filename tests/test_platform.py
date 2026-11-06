@@ -80,15 +80,15 @@ class PlatformPolicy(unittest.TestCase):
         self.assertEqual(resources[0]['spec']['clusterResourceWhitelist'],[])
         self.assertFalse((ROOT/'applications/aws/commerce.json').exists())
 
-    def test_repository_review_policy_keeps_all_paths_owned_and_one_approval(self):
+    def test_repository_review_policy_exempts_only_dev_qa_release_files(self):
         policy=json.loads((ROOT/'policy/review-settings.json').read_text())
-        self.assertEqual(policy['required_approving_review_count'], 1)
+        self.assertEqual(policy['required_approving_review_count'], 0)
         self.assertTrue(policy['require_code_owner_reviews'])
-        self.assertTrue(policy['require_last_push_approval'])
+        self.assertFalse(policy['require_last_push_approval'])
         self.assertTrue(policy['dismiss_stale_reviews'])
         rules=[line.strip() for line in (ROOT/'.github/CODEOWNERS').read_text().splitlines()
                if line.strip() and not line.lstrip().startswith('#')]
-        self.assertEqual(rules, ['* @Narx-Space-Prod/code-reviewers'])
+        self.assertEqual(rules, ['* @Narx-Space-Prod/code-reviewers', '/environments/dev/release.json', '/environments/qa/release.json'])
 
     def test_container_ports_declare_protocol_to_avoid_crd_default_drift(self):
         for env in ('dev', 'qa', 'production'):

@@ -2,7 +2,7 @@
 
 Owner: Platform/release.
 
-Desired deployment state for dev, QA and production, including application releases and platform add-ons. A shared service chart and commerce umbrella chart provide digest-only deployment. Argo Applications and release automation are prepared; registration and GHCR publishing remain disabled.
+Desired deployment state for dev, QA and production, including application releases and platform add-ons. A shared service chart and commerce umbrella chart provide digest-only deployment. Argo CD deploys all three environments on the dedicated Narx cluster, using signed private GHCR images.
 
 Project guide: [DOC.md](https://github.com/Narx-Space-Prod/platform-infrastructure/blob/main/DOC.md).
 
@@ -15,7 +15,7 @@ worker. The background roles reuse the orders image; there are no extra image bu
 It is not the Kubernetes dev/QA deployment or an AWS environment.
 All changes after repository initialization go through feature branches and pull requests.
 These repositories are public on GitHub Free. Protected `main` requires a CODEOWNER
-approval, passing CI checks and resolved conversations; administrators follow the same rules.
+approval for owned files, passing CI checks and resolved conversations; administrators follow the same rules. Only Dev/QA release JSON files are unowned, with trusted verification requiring the dedicated release App as author.
 
 ## Chart contract
 
@@ -28,16 +28,17 @@ or add worker-node capacity automatically.
 `environments/*/values.yaml` contains capacity settings only. No deployable image references
 are present. Validation injects a dummy image into rendered output; it is never committed as a release.
 `environments/*/runtime.yaml` configures the complete stack; `release.json` is the
-canonical image bundle, initially non-deployable. `applications/local/commerce.json`
+canonical immutable image bundle. `applications/local/commerce.json`
 registers dev/QA/production on the dedicated `narx-local` cluster after operator bootstrap.
-Argo CD remains on the existing management cluster; AWS production manifests are retired. `applications/notifications.json` is a data-only
+Argo CD runs in the dedicated Narx cluster; the old management cluster is paused. AWS production manifests are retired. `applications/notifications.json` is a data-only
 merge patch, not a standalone manifest; use the infrastructure helper to install it.
 
 The reconciler verifies signed main-build records before proposing release/promotion
-PRs. The trusted candidate verifier never executes PR code. Dev, QA and production
-all retain human review. Failed QA/production rollouts can propose reviewed rollback
-PRs; persistent data and SQL migrations are not rolled back. See DOC.md for exact App,
-OIDC, credential-refresh and activation steps. Existing dev/QA Applications currently have no runtime workloads; retargeting requires reviewed operator activation.
+PRs. The trusted candidate verifier never executes PR code. Dev and QA release PRs merge
+automatically after required checks. Production requires code-owner approval and explicit
+merge. Failed QA rollouts can propose verified automatic rollback PRs; Production
+rollback PRs retain human review; persistent data and SQL migrations are not rolled back. See DOC.md for exact App,
+OIDC, credential-refresh and activation steps. All three environments have running workloads. After this policy PR is reviewed and merged, apply `policy/review-settings.json` to the GitOps main branch review settings. It sets the blanket approval count to zero while retaining required code-owner reviews and stale-review dismissal. This permits only the two explicitly unowned release files to advance without human approval. Service repository review settings are unchanged.
 
 ## Local preview and integration tests
 

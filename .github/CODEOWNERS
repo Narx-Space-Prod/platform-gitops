@@ -1,2 +1,5 @@
-# All GitOps changes require the designated reviewer team.
+# Human review for production, charts, policy, workflows and all other changes.
 * @Narx-Space-Prod/code-reviewers
+# Only these bot-generated release files can advance without human review.
+/environments/dev/release.json
+/environments/qa/release.json
