@@ -122,7 +122,7 @@ def verify_image(fact):
                   '--certificate-oidc-issuer', 'https://token.actions.githubusercontent.com',
                   '--certificate-github-workflow-repository', fact['repository'],
                   '--certificate-github-workflow-ref', 'refs/heads/main',
-                  '--certificate-github-workflow-sha', builder,
+                  '--certificate-github-workflow-sha', fact['commit'],
                   '--certificate-github-workflow-trigger', 'push']
         try:
             output = run(*common, '--type', PREDICATE, reference)
