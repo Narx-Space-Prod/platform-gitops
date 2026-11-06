@@ -170,3 +170,19 @@ The local profiles use `global.publicAccess.origin` and `global.publicAccess.sec
 ## Event-driven promotion and recovery
 
 Protected source CI emits release-published; a signed GitHub push webhook refreshes Argo when GitOps changes merge. The observer posts deployment evidence on the revision actually synced. Only success/failure status events from the trusted observer App and the three deployment contexts can trigger promotion; required health, signature and review gates still apply. Scheduling remains a fallback. Configure the webhook using the reviewed infrastructure bootstrap helper and permit only Argo's signed `/api/webhook` endpoint through any interactive Cloudflare Access policy. Slack uses the named webhook subscription (`.slack: ""`), with its credential kept in the existing Kubernetes Secret. The release bot waits for GitHub to expose its expected PR head and retries the exact-head auto-merge operation within a bounded window; it never accepts another head or auto-merges production.
+
+## Delivery timing and bounded capacity
+
+Java Orders, Publisher and Worker stay in separate sync waves. Their CPU ceilings
+are one core, with the existing 448/320/320 MiB memory limits preserved. This uses
+available CPU during startup rather than overlapping Java memory peaks. Cart and
+Catalogue share a lightweight wave; the render tests check aggregate surge memory
+against namespace quotas, including maximum frontend HPA replicas. Readiness,
+startup, smoke and progressive-delivery checks remain enabled.
+
+Image provenance and SBOM success can be reused within one reconciliation process
+only for the identical digest, source/run identity and reviewed builder policy.
+The cache is in memory, stores only successful checks and is discarded between
+invocations. Changed sources, digests or builder policies require verification
+again. No persisted verification cache or skipped environment health evidence is
+introduced. Preserve old reviewed builders for existing releases and rollbacks.
