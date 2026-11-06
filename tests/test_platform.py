@@ -80,6 +80,37 @@ class PlatformPolicy(unittest.TestCase):
                         self.assertGreaterEqual(probe['failureThreshold']*probe['periodSeconds'],300)
                         self.assertEqual(probe['timeoutSeconds'],5)
 
+    def test_service_updates_follow_dependencies_with_one_surge_wave(self):
+        expected={'orders':0,'cart':1,'catalogue':2,'publisher':3,'worker':4,'frontend':5}
+        for env in ('dev','qa','production'):
+            workloads=self.objects(env,'Deployment')+self.objects(env,'Rollout')
+            for role,wave in expected.items():
+                workload=next(w for w in workloads if w['metadata']['name']=='commerce-'+role)
+                self.assertEqual(int(workload['metadata']['annotations']['argocd.argoproj.io/sync-wave']),wave)
+                self.assertGreater(workload['spec']['progressDeadlineSeconds'],300)
+                if workload['kind']=='Deployment':
+                    self.assertEqual(workload['spec']['strategy']['rollingUpdate'],{'maxSurge':1,'maxUnavailable':0})
+
+    def test_each_ordered_surge_fits_local_memory_quota_at_hpa_maximum(self):
+        def mib(value):
+            return int(value[:-2]) * (1024 if value.endswith('Gi') else 1)
+        for env in ('dev','qa','production'):
+            workloads=self.objects(env,'Deployment')+self.objects(env,'Rollout')+self.objects(env,'StatefulSet')
+            frontend_max=next(iter(self.objects(env,'HorizontalPodAutoscaler')),{}).get('spec',{}).get('maxReplicas',1)
+            costs={}
+            replicas={}
+            for w in workloads:
+                name=w['metadata']['name']
+                costs[name]={k:sum(mib(c['resources'][k]['memory']) for c in w['spec']['template']['spec']['containers']) for k in ('requests','limits')}
+                replicas[name]=frontend_max if name=='commerce-frontend' else w['spec'].get('replicas',1)
+            for category,quota in [('requests',1536),('limits',3072)]:
+                steady=sum(costs[name][category]*replicas[name] for name in costs)
+                for name in ['commerce-'+r for r in ('orders','cart','catalogue','publisher','worker','frontend')]:
+                    # A Deployment has one surge pod. Blue-green retains an entire stable set plus one analysis Job.
+                    extra=costs[name][category]*(frontend_max if name=='commerce-frontend' else 1)
+                    if name=='commerce-frontend' and env!='dev':extra+=32 if category=='requests' else 96
+                    self.assertLessEqual(steady+extra,quota,(env,category,name,steady+extra,quota))
+
     def test_hpa_is_bounded_and_argo_leaves_only_frontend_replicas_to_it(self):
         self.assertEqual(self.objects('dev', 'HorizontalPodAutoscaler'), [])
         for env, minimum, maximum in [('qa',1,2), ('production',2,3)]:

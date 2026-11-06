@@ -5,6 +5,8 @@ apiVersion: {{ ternary "argoproj.io/v1alpha1" "apps/v1" .Values.progressive.enab
 kind: {{ ternary "Rollout" "Deployment" .Values.progressive.enabled }}
 metadata:
   name: {{ include "commerce-service.fullname" . }}
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ .Values.syncWave | quote }}
   labels:
     app.kubernetes.io/name: {{ .Chart.Name }}
     app.kubernetes.io/instance: {{ include "commerce-service.fullname" . }}
@@ -13,7 +15,7 @@ spec:
   replicas: {{ .Values.replicaCount }}
   {{- end }}
   revisionHistoryLimit: 3
-  progressDeadlineSeconds: 300
+  progressDeadlineSeconds: 600
   strategy:
     {{- if .Values.progressive.enabled }}
     blueGreen:
