@@ -42,7 +42,7 @@ jobs:
       contents: read
       statuses: read
       pull-requests: read
-    uses: ./.github/workflows/delivery-observe.yml
+    uses: ./.github/workflows/verify.yml
     with:
       environment: production
       operation: observe-production

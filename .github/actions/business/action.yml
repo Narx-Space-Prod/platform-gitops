@@ -1,0 +1,72 @@
+name: Isolated business validation
+description: Test exact release images with simulated payments and disposable data
+runs:
+  using: composite
+  steps:
+    - name: Select the exact Dev-verified images without rebuilding
+      id: bundle
+      shell: bash
+      run: |
+        python3 - <<'PYTHON'
+        import json,os,secrets,subprocess,sys
+        from pathlib import Path
+        sys.path.insert(0,'scripts'); import delivery
+        subprocess.run(['git','fetch','origin','main'],check=True)
+        value=json.loads(subprocess.check_output(['git','show','origin/main:environments/dev/release.json'],text=True))
+        assert delivery.validate(value) and value['release']['id']==os.environ['EXPECTED_BUNDLE'], 'Dev release was superseded'
+        Path(os.environ['RUNNER_TEMP'],'business-bundle.json').write_text(json.dumps(value))
+        with open(os.environ['GITHUB_OUTPUT'],'a') as out:
+            out.write('orders-commit='+value['release']['components']['orders']['commit']+'\n')
+        os.umask(0o077)
+        Path('local/.env').write_text(''.join(k+'='+secrets.token_hex(32)+'\n' for k in
+            ('DATABASE_PASSWORD','SESSION_SECRET','FIXTURE_PAYMENT_SECRET','FIXTURE_WEBHOOK_SECRET'))+
+            'APP_BIND_ADDRESS=127.0.0.1\nAPP_PORT=18080\nPUBLIC_ORIGIN=http://127.0.0.1:18080\nDELIVERY_VISIBILITY_SECONDS=15\n')
+        PYTHON
+    - name: Checkout the matching sandbox payment fixture only
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      with:
+        repository: Narx-Space-Prod/commerce-orders
+        ref: ${{ steps.bundle.outputs.orders-commit }}
+        path: fixture-source
+        sparse-checkout: tests/fixtures
+        persist-credentials: false
+    - name: Authenticate private image reads
+      env:
+        REGISTRY_TOKEN: ${{ github.token }}
+      shell: bash
+      run: printf '%s' "$REGISTRY_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+    - name: Start isolated exact-image sandbox and test business failures
+      shell: bash
+      run: |
+        set -euo pipefail
+        docker compose --env-file local/.env -f local/compose.yaml config --format json > "$RUNNER_TEMP/business-compose.json"
+        python3 - <<'PYTHON'
+        import json,os
+        from pathlib import Path
+        config=json.loads(Path(os.environ['RUNNER_TEMP'],'business-compose.json').read_text())
+        facts=json.loads(Path(os.environ['RUNNER_TEMP'],'business-bundle.json').read_text())['release']['components']
+        for service,component in {'frontend':'frontend','catalogue':'catalogue','cart':'cart','orders':'orders','outbox-publisher':'orders','receipt-worker':'orders'}.items():
+            config['services'][service].pop('build',None)
+            config['services'][service]['image']=facts[component]['image']+'@'+facts[component]['digest']
+        config['services']['razorpay-fixture']['volumes'][0]['source']=str(Path('fixture-source/tests/fixtures/razorpay.py').resolve())
+        Path(os.environ['RUNNER_TEMP'],'business-compose.json').write_text(json.dumps(config))
+        PYTHON
+        docker compose --project-name "$NARX_COMPOSE_PROJECT" -f "$RUNNER_TEMP/business-compose.json" up --no-build --wait --wait-timeout 600
+        python3 -m unittest discover -s tests -p test_local_stack.py -v
+    - name: Diagnose sandbox failure without dumping configuration or credentials
+      if: failure()
+      shell: bash
+      run: |
+        if [ -f "$RUNNER_TEMP/business-compose.json" ]; then
+          docker compose --project-name "$NARX_COMPOSE_PROJECT" -f "$RUNNER_TEMP/business-compose.json" ps --all
+          docker compose --project-name "$NARX_COMPOSE_PROJECT" -f "$RUNNER_TEMP/business-compose.json" logs --tail 100 receipt-worker outbox-publisher
+        fi
+    - name: Remove only this sandbox and its ephemeral volumes
+      if: always()
+      shell: bash
+      run: |
+        if [ -f "$RUNNER_TEMP/business-compose.json" ]; then
+          docker compose --project-name "$NARX_COMPOSE_PROJECT" -f "$RUNNER_TEMP/business-compose.json" down --volumes --remove-orphans
+        fi
+        docker logout ghcr.io
+        rm -f local/.env
