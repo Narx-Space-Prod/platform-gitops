@@ -112,27 +112,6 @@ class MasterSourceGates(unittest.TestCase):
    with self.assertRaises(ValueError):self.g.identity({'client_payload':{**self.event['client_payload'],**changes}})
   for changes in [{'head_sha':'c'*40},{'event':'pull_request'},{'path':'.github/workflows/other.yml'}]:
    with self.assertRaises(ValueError):self.g.validate({**self.record,**changes},self.repo,'b'*40)
- def test_tests_wait_for_cart_and_reject_failed_gates(self):
-  names=self.g.required('tests',self.repo)
-  self.assertEqual(len(names),3)
-  jobs=[{'name':n,'status':'completed','conclusion':'success','html_url':'https://example.test/job'} for n in names]
-  from tempfile import NamedTemporaryFile
-  with NamedTemporaryFile() as report,patch.dict(os.environ,{'GITHUB_STEP_SUMMARY':report.name}),patch.object(self.g,'api',return_value=self.record),patch.object(self.g.time,'sleep') as sleep:
-   missing=json.dumps([{'jobs':jobs[:2]}]);complete=json.dumps([{'jobs':jobs}])
-   with patch.object(self.g.subprocess,'check_output',side_effect=[missing,complete]):
-    self.g.observe('tests',self.event)
-    sleep.assert_called_once()
-   jobs[0]['conclusion']='failure'
-   with patch.object(self.g.subprocess,'check_output',return_value=json.dumps([{'jobs':jobs}])):
-    with self.assertRaisesRegex(ValueError,'failed'):self.g.observe('tests',self.event)
- def test_publication_requires_complete_ci_and_skips_delivery_without_new_images(self):
-  with patch.object(self.g,'api',return_value={**self.record,'status':'completed','conclusion':'success'}),patch.object(self.g.subprocess,'check_output',return_value='[{"jobs":[]}]'):
-   from tempfile import NamedTemporaryFile
-   with NamedTemporaryFile() as output, NamedTemporaryFile() as summary, patch.dict(os.environ,{'GITHUB_OUTPUT':output.name,'GITHUB_STEP_SUMMARY':summary.name}):
-    self.assertFalse(self.g.observe('publication',self.event))
-    self.assertIn('deploy=false',Path(output.name).read_text())
-  with patch.object(self.g,'api',return_value={**self.record,'status':'completed','conclusion':'cancelled'}),patch.object(self.g.subprocess,'check_output',return_value='[{"jobs":[]}]'):
-   with self.assertRaisesRegex(ValueError,'cancelled'):self.g.observe('publication',self.event)
  def test_master_has_ci_through_production_in_one_dependency_chain(self):
   root=Path(__file__).resolve().parents[1]
   jobs=yaml.safe_load((root/'.github/workflows/commerce.yml').read_text())['jobs']
@@ -200,7 +179,7 @@ class VersionedEvidence(unittest.TestCase):
     with self.assertRaises(ValueError):self.g.evidence('tests',{**self.record,'status':'completed'},self.repo,'b'*40,12)
  def test_version_one_cannot_silently_fall_back_to_job_names(self):
   event={'client_payload':{'repository':self.repo,'commit':'b'*40,'runId':12,'evidenceVersion':1}}
-  with patch.object(self.g,'observe_versioned',side_effect=ValueError('missing evidence')),patch.object(self.g,'required') as legacy:
+  with patch.object(self.g,'observe_versioned',side_effect=ValueError('missing evidence')),patch.object(self.g,'api') as legacy:
    with self.assertRaises(ValueError):self.g.observe('tests',event)
    legacy.assert_not_called()
 
@@ -240,3 +219,23 @@ class BusinessGateSafety(unittest.TestCase):
   self.assertEqual(steps[-1]['if'],'always()')
   fixture=next(s for s in steps if s.get('with',{}).get('path')=='fixture-source')
   self.assertEqual(fixture['with']['ref'],'${{ steps.bundle.outputs.orders-commit }}')
+
+class RetiredPathCleanup(unittest.TestCase):
+ def test_old_or_unspecified_evidence_is_rejected_without_api_access(self):
+  import source_gate
+  for version in (None,True,0,2,'1'):
+   with patch.object(source_gate,'api') as api:
+    with self.assertRaises(ValueError):source_gate.observe('tests',{'client_payload':{'evidenceVersion':version}})
+    api.assert_not_called()
+ def test_manual_rollback_reuses_verified_previous_release_without_failure_trigger(self):
+  sample=DeliveryStages();sample.setUp()
+  current=d.bundle(sample.facts,{'components':sample.old,'gitopsCommit':'c'*40,'environment':'qa'})
+  def command(*args,**kwargs):
+   if args[:2]==('git','show'):return json.dumps(current)
+   return sample.command(*args,**kwargs)
+  with patch.object(d,'run',side_effect=command),patch.object(d,'healthy',side_effect=lambda revision,env,state='success':state=='success'),patch.object(d,'verify_image') as verify,patch.object(d,'open_pr') as propose,patch.object(d,'stage_output'):
+   d.recover_stage('qa')
+   propose.assert_not_called()
+   d.recover_stage('qa',manual=True)
+   self.assertEqual(propose.call_args.args[1]['release']['components'],sample.old)
+   self.assertEqual(verify.call_count,4)

@@ -38,7 +38,7 @@ PRs. The trusted candidate verifier never executes PR code. Dev and QA release P
 automatically after required checks. Production requires code-owner approval and explicit
 merge. Failed QA rollouts can propose verified automatic rollback PRs; Production
 rollback PRs retain human review; persistent data and SQL migrations are not rolled back. See DOC.md for exact App,
-OIDC, credential-refresh and activation steps. All three environments have running workloads. After this policy PR is reviewed and merged, apply `policy/review-settings.json` to the GitOps main branch review settings. The blanket count is zero, but that alone does not enforce code-owner review. The active native ruleset in `policy/review-ruleset.json` requires one approval from the reviewer team for all paths except the two Dev/QA release files. Keep this ruleset active before applying the zero-count branch setting; never rely on CODEOWNERS alone at count zero. No user or App has a ruleset bypass. Service repository review settings are unchanged.
+OIDC, credential-refresh and activation steps. All three environments have running workloads. The blanket count is zero, but that alone does not enforce code-owner review. The active native ruleset in `policy/review-ruleset.json` requires one approval from the reviewer team for all paths except the two Dev/QA release files. Keep this ruleset active before applying the zero-count branch setting; never rely on CODEOWNERS alone at count zero. No user or App has a ruleset bypass. Service repository review settings are unchanged.
 
 ## Local preview and integration tests
 
@@ -121,22 +121,11 @@ them. Empty bootstrap Applications cannot report a successful deployed-image sta
 
 Local QA and production use a namespaced CiliumNetworkPolicy to let only the Rollouts controller reach the kube-apiserver identity on TCP 443/6443. CIDR policies do not select node-hosted API endpoints under Cilium defaults. The existing CI custom-resource schema lookup is schemas/argo; ciliumnetworkpolicy.json there is extracted from the v1.20.4 Cilium CRD at https://raw.githubusercontent.com/cilium/cilium/v1.20.4/pkg/k8s/apis/cilium.io/client/crds/v2/ciliumnetworkpolicies.yaml so CI validates the policy without skipping unknown kinds.
 
-## Automated dev and QA promotion
+## Release ownership
 
-Source code still needs human review in its source repository. CI builds each image once, scans it and publishes signed provenance and an SBOM. The release reconciler creates digest-only dev and QA release PRs and enables native GitHub auto-merge. Required checks, strict branch freshness, trusted release verification, and conversation resolution remain enforced. QA advances only after dev has current successful rollout and smoke evidence. Every release PR requires code-owner approval; dev and QA can merge automatically after approval and checks. Production is merged explicitly.
+Source PRs require independent review. The master creates Dev/QA release PRs, which auto-merge after trusted checks without human approval. Production release PRs require code-owner approval and explicit merge. Owned platform changes also require review. There is one normal release controller: Commerce CI/CD.
 
-CODEOWNERS owns every file and main requires one approval, including the most recent push. A live GitHub check showed that setting the generic approval count to zero did not enforce code-owner review, so that configuration was withdrawn. Fully unattended dev/QA promotions are not enabled under the current repository-wide review boundary. Native auto-merge waits for human review and required checks; it is not an approval bot or a bypass. Source repository protections remain unchanged.
-
-After this change is reviewed and merged, apply its tracked review configuration and enable native auto-merge from this repository checkout:
-
-```bash
-gh api --method PATCH repos/Narx-Space-Prod/platform-gitops/branches/main/protection/required_pull_request_reviews --input policy/review-settings.json
-gh repo edit Narx-Space-Prod/platform-gitops --enable-auto-merge
-```
-
-These commands change only the GitOps review settings and auto-merge option. Required checks, admin enforcement, linear history and force-push protection are retained. Verify the resulting branch protection and CODEOWNERS errors endpoint before relying on automation.
-
-Promotion evidence follows the environment configuration history, not every unrelated GitOps commit. Reconciliation searches main history back to the latest change in shared charts, that environment directory, or the local Argo application definitions. It uses the newest deployment status within that window. Pending/failure/forged status blocks advancement; a runtime change invalidates older success. The search is bounded to 50 revisions and missing evidence fails closed.
+Promotion uses trusted smoke evidence for the exact immutable bundle and current environment configuration. New configuration, pending/failure evidence and untrusted status authors block advancement. Recovery proposes only verified previous image bundles; SQL migrations and persistent data are not automatically reversed.
 
 ## Bounded frontend autoscaling
 
@@ -242,30 +231,29 @@ building blocks.
 
 ## Main pipeline: Commerce CI/CD
 
-Open **Actions → Commerce CI/CD** in this repository. This is the operator entry point from application CI through Production. Each main-branch application change starts a run titled with its repository and commit.
+Follow [Commerce CI/CD](https://github.com/Narx-Space-Prod/platform-gitops/actions/workflows/commerce.yml), identified by source repository and commit:
 
-The graph verifies the actual source unit/integration/security jobs, waits for Sonar, confirms signed publication and complete source CI, then prepares and verifies Dev, QA and Production. Source CI runs remain execution details linked from the master gate summaries; this is cross-repository orchestration, not duplicated tests or a second image build. PR checks remain in the service repository before merge.
+**CI tests/security → Sonar → signed publication → Dev verification → isolated business E2E → QA verification → Production approval → Production verification.**
 
-Production still requires an independently reviewed GitOps release PR. The same master run observes its merge and trusted rollout/smoke evidence for up to one hour. A timeout is a failed observation, never permission to merge or a deployment success. Recovery and the existing Production merge observer remain available afterward. Read-only observer jobs receive no App secrets or Kubernetes credentials.
+Service CI executes tests and builds; the master verifies versioned JSON evidence tied to the exact repository, commit, run and attempt. It does not duplicate builds. Image signatures and SBOMs are verified separately before promotion. PR checks remain in source repositories. All current callers use evidence v1; job-name matching and the legacy all-in-one reconciler are retired.
 
-Only release-state mutations are serialized, using the shared `release-state-mutation` group for promotion and recovery with GitHub’s bounded multi-entry queue. CI and approval observation hold no writer lock; intake verifies that its source release has not been superseded. The graph fails visibly if its source release is no longer selected. A master can include other components' latest verified releases; the immutable bundle is identical across Dev, QA and Production.
+The hosted business sandbox pulls exact Dev-verified image digests, uses only a matching payment simulator and disposable local credentials/data, and exercises checkout, refund and queue recovery before QA. It never connects to Kubernetes or live payments; project-scoped cleanup runs even on failure.
 
-Activation order: merge the master first, merge the shared CI intake next, then pin service callers to the final reviewed shared revision. All current callers use the master; the legacy Delivery workflow is retired. Do not call the new view active before the callers are migrated and the end-to-end run is verified.
+Promotion and recovery share the short-lived `release-state-mutation` lock with GitHub's bounded multi-entry queue. CI and Production approval waits hold no writer lock. A superseded release fails closed rather than claiming deployment of a different bundle. The queue is bounded, not an unlimited durable release queue.
 
-### Orchestration hardening
+Production remains independently approved through its release PR. The master observes merge and trusted smoke evidence for up to one hour; timeout is not approval or deployment success. Recovery retains narrow Production-merge observation for operational fallback. Waiting still consumes a bounded hosted runner.
 
-Promotion and recovery use the same short-lived mutation lock. Production approval remains an independent release PR; waiting for it consumes a bounded observation runner, but no longer blocks later Dev/QA mutation jobs. Concurrent masters can encounter superseded bundles and fail closed; this is explicit supersession, not successful delivery of the wrong version. GitHub’s `queue: max` supports a bounded queue of up to100 pending jobs, not an unlimited durable queue.
+Reusable workflow files separate source evidence, privileged mutations and read-only rollout observation. Trusted PR verification runs reviewed base code; it never executes candidate PR code. Control scripts stay at the workflow revision while live desired state is read separately from fetched Git.
 
-The old scheduled/dispatch Delivery controller is removed. Recovery owns the narrowly scoped Production-merge verification fallback. Control scripts come from the workflow revision; live release JSON is read separately from fetched main. Read-only GitHub API transport failures have bounded backoff; failed writes, authorization and signatures are not silently retried.
+### Manual recovery
 
-The pinned latest actionlint1.7.12 does not understand GitHub’s documented concurrency.queue field. The repository config suppresses that one unsupported-key diagnostic in delivery-stage.yml only; regression tests enforce the exact supported queue value and shared lock. Other workflow validation remains enabled.
+Use Actions → Recovery for an explicit environment rollback, or the reviewed CLI:
 
-Remaining follow-up work: versioned CI evidence instead of display-name matching; targeted complete business-flow E2E; runner-free PR-approval waiting if retaining the same long-lived master run. These are not claimed fixed by this change.
+```bash
+python3 scripts/delivery.py validate
+python3 scripts/delivery.py rollback qa
+```
 
-### Versioned gates and isolated business E2E
+Rollback commands require authenticated Git/GitHub, registry verification, configured observer identity and cosign as supplied by the recovery workflow. They propose a checked GitOps PR; Production review is retained. Automatic failure recovery is limited to QA/Production. No schema/data rollback is implied.
 
-For evidenceVersion1 intake, the master reads versioned test, quality and publication artifacts from the exact source run and current attempt. It validates archive bounds, artifact ownership, commit, schema and image identities; no uploaded code is executed. Missing or invalid v1 evidence fails closed. Legacy job-name matching remains only for already-dispatched/unmigrated callers.
-
-After verified Dev and before QA, the master starts a disposable hosted Compose sandbox using those exact image digests, with no application rebuild. It checks out only the matching Orders payment fixture and runs the existing checkout/admin/payment/refund/outbox/replay/DLQ test using a simulator. The sandbox uses random local credentials and ephemeral volumes; cleanup is scoped to its unique Compose project. This gate never connects to Kubernetes, production data, AWS or real Razorpay transactions. Full hosted execution must pass before treating this addition as validated.
-
-Production still uses the independently reviewed GitOps release PR. Its bounded observation runner remains a conscious limitation: a runner-free pause would require changing the approval/orchestration model. It no longer owns a global release lock. This change does not claim unlimited durable queueing, formal SLSA certification or database-safe automatic rollback for arbitrary schema changes.
+The actionlint configuration suppresses only its unsupported concurrency.queue-key diagnostic in delivery-stage.yml; regression tests validate the exact shared queued-lock contract. Other lint checks remain enabled.
