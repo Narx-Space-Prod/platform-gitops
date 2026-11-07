@@ -26,7 +26,18 @@ _VERIFIED_IMAGES = set()
 
 
 def run(*args, input=None):
-    return subprocess.check_output(args, input=input, text=True).strip()
+    read_api = args[:2] == ('gh', 'api') and '--method' not in args and input is None and '--input' not in args
+    for attempt in range(4):
+        try:
+            return subprocess.check_output(args, input=input, text=True, timeout=180, stderr=subprocess.STDOUT if read_api else None).strip()
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
+            # Retry only read-only API operations. Failed writes/signatures never retry here.
+            message = str(getattr(error, 'output', '') or '').lower()
+            transient = isinstance(error, subprocess.TimeoutExpired) or any(
+                text in message for text in ('http 429', 'http 500', 'http 502', 'http 503', 'http 504', 'tls handshake timeout', 'connection reset'))
+            if not read_api or not transient or attempt == 3:
+                raise
+            time.sleep(2 ** attempt)
 
 
 def api(path):
@@ -306,8 +317,7 @@ def released_facts():
 def reconcile(operation, environment=None):
     run('git', 'fetch', 'origin', 'main')
     revision = run('git', 'rev-parse', 'origin/main')
-    run('git', 'switch', '--detach', revision)
-    states = {e: read(ROOT / f'environments/{e}/release.json') for e in ENVIRONMENTS}
+    states = {e: json.loads(run('git', 'show', revision + f':environments/{e}/release.json')) for e in ENVIRONMENTS}
     for value in states.values():
         validate(value)
     if operation == 'rollback':
@@ -430,7 +440,6 @@ def advance_stage(environment, expected=None):
     require(environment in ENVIRONMENTS, 'unexpected delivery stage')
     run('git', 'fetch', 'origin', 'main')
     revision = run('git', 'rev-parse', 'origin/main')
-    run('git', 'switch', '--detach', revision)
     states = {e: read(ROOT / f'environments/{e}/release.json') for e in ENVIRONMENTS}
     for value in states.values():
         validate(value)
@@ -497,8 +506,7 @@ def recover_stage(environment):
     require(environment in ('qa', 'production'), 'automatic recovery is limited to QA/production')
     run('git', 'fetch', 'origin', 'main')
     revision = run('git', 'rev-parse', 'origin/main')
-    run('git', 'switch', '--detach', revision)
-    current = read(ROOT / f'environments/{environment}/release.json')
+    current = json.loads(run('git', 'show', revision + f':environments/{environment}/release.json'))
     if not validate(current) or not healthy(revision, environment, 'failure'):
         print('No current trusted deployment failure; no recovery proposed.')
         return

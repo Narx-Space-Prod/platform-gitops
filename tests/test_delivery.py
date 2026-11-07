@@ -282,7 +282,7 @@ class DeliveryPolicy(unittest.TestCase):
         states={e:d.bundle(self.facts) for e in d.ENVIRONMENTS}
         states['dev']=d.bundle(facts)
         def read(path):return states[Path(path).parent.name]
-        with patch.object(d,'run',return_value='d'*40), patch.object(d,'read',side_effect=read), \
+        with patch.object(d,'run',side_effect=lambda *args,**kwargs: json.dumps(states[args[2].split('environments/')[1].split('/')[0]]) if args[:2]==('git','show') else 'd'*40), patch.object(d,'read',side_effect=read), \
              patch.object(d,'released_facts',return_value=facts), \
              patch.object(d,'healthy',side_effect=lambda revision,env,state='success': env=='dev'), \
              patch.object(d,'open_pr') as propose:

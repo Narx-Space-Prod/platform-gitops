@@ -32,6 +32,10 @@ jobs:
   advance:
     name: Prepare immutable release
     if: github.repository == 'Narx-Space-Prod/platform-gitops' && github.ref == 'refs/heads/main' && vars.DELIVERY_ENABLED == 'true'
+    concurrency:
+      group: release-state-mutation
+      cancel-in-progress: false
+      queue: max
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     environment: gitops-release
@@ -46,7 +50,6 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: main
           persist-credentials: false
           fetch-depth: 0
       - name: Authenticate read-only GHCR verification

@@ -22,7 +22,9 @@ class DeliveryStages(unittest.TestCase):
   self.states={'dev':self.bundle,'qa':d.bundle(self.old),'production':d.bundle(self.old)}
  def command(self,*args,**kwargs):
   if args[:3]==('git','rev-parse','origin/main'):return 'c'*40
-  if args[:2]==('git','show'):return json.dumps(self.bundle)
+  if args[:2]==('git','show'):
+   env=args[2].split('environments/')[1].split('/')[0]
+   return json.dumps(self.states[env])
   if args[:3]==('gh','pr','list'):return json.dumps([{'state':'OPEN'}])
   return ''
  def state(self,path):return self.states[Path(path).parent.name]
@@ -40,6 +42,7 @@ class DeliveryStages(unittest.TestCase):
     with self.assertRaises(ValueError):d.advance_stage('qa',wanted)
    propose.assert_not_called()
  def test_wait_requires_matching_bundle_and_trusted_success(self):
+  self.states['qa']=self.bundle
   with patch.object(d,'run',side_effect=self.command),patch.object(d,'healthy',side_effect=lambda revision,env,state='success':state=='success'),patch.object(d,'stage_output') as output:
    d.wait_for_deployment('dev',self.bundle['release']['id'])
    output.assert_called_once()
@@ -68,7 +71,7 @@ class DeliveryStages(unittest.TestCase):
 class DeliveryGraph(unittest.TestCase):
  def test_graph_orders_real_smoke_gates_and_keeps_wait_jobs_read_only(self):
   root=Path(__file__).resolve().parents[1]
-  workflow=yaml.safe_load((root/'.github/workflows/delivery.yml').read_text())
+  workflow=yaml.safe_load((root/'.github/workflows/commerce.yml').read_text())
   jobs=workflow['jobs']
   self.assertEqual(jobs['verify-dev']['needs'],'dev')
   self.assertEqual(jobs['qa']['needs'],['dev','verify-dev'])
@@ -83,14 +86,13 @@ class DeliveryGraph(unittest.TestCase):
   self.assertNotIn('environment',observer)
   self.assertNotIn('secrets',observer)
   self.assertEqual(observer['permissions'],{'contents':'read','statuses':'read','pull-requests':'read'})
-  self.assertIn('github.event.pull_request.merged == true',jobs['production']['if'])
-  self.assertIn('github.event.pull_request.head.repo.full_name == github.repository',jobs['production']['if'])
+  self.assertEqual(jobs['production']['needs'],['dev','production-pr'])
 
 class ReleaseSecretContract(unittest.TestCase):
  def test_only_release_stages_receive_named_secret(self):
   import yaml
   root=Path(__file__).resolve().parents[1]
-  for filename in ('delivery.yml','recovery.yml'):
+  for filename in ('commerce.yml','recovery.yml'):
    workflow=yaml.safe_load((root/'.github/workflows'/filename).read_text())
    for job in workflow['jobs'].values():
     if job.get('uses','').endswith('/delivery-stage.yml'):
@@ -141,3 +143,31 @@ class MasterSourceGates(unittest.TestCase):
   self.assertEqual(jobs['production']['with']['release-id'],"${{ needs.dev.outputs.release-id }}")
   self.assertEqual(jobs['production']['with']['timeout-seconds'],3600)
   self.assertNotIn('secrets',jobs['production'])
+
+
+class OrchestrationOwnership(unittest.TestCase):
+ def test_only_mutations_hold_the_shared_queued_lock(self):
+  root=Path(__file__).resolve().parents[1]
+  load=lambda name: yaml.safe_load((root/'.github/workflows'/name).read_text())
+  self.assertFalse((root/'.github/workflows/delivery.yml').exists())
+  self.assertNotIn('concurrency',load('commerce.yml'))
+  mutation=load('delivery-stage.yml')['jobs']['advance']
+  self.assertEqual(mutation['concurrency'],{'group':'release-state-mutation','cancel-in-progress':False,'queue':'max'})
+  self.assertNotIn('concurrency',load('recovery.yml')['jobs']['recovery'])
+  self.assertIn('production-observation',load('recovery.yml')['jobs'])
+  for name in ('delivery-stage.yml','delivery-observe.yml'):
+   jobs=load(name)['jobs']
+   for job in jobs.values():
+    for step in job.get('steps',[]):
+     if step.get('uses','').startswith('actions/checkout@'):
+      self.assertNotIn('ref',step.get('with',{}))
+ def test_read_transport_retries_but_authorization_and_mutation_fail_closed(self):
+  import subprocess
+  transient=subprocess.CalledProcessError(1,['gh'],output='HTTP 503')
+  denied=subprocess.CalledProcessError(1,['gh'],output='HTTP 403')
+  with patch.object(d.subprocess,'check_output',side_effect=[transient,'{}']),patch.object(d.time,'sleep') as sleep:
+   self.assertEqual(d.run('gh','api','repos/example'),'{}');sleep.assert_called_once()
+  for args,error in [(('gh','api','repos/example'),denied),(('gh','api','--method','POST','repos/example'),transient)]:
+   with patch.object(d.subprocess,'check_output',side_effect=error),patch.object(d.time,'sleep') as sleep:
+    with self.assertRaises(subprocess.CalledProcessError):d.run(*args)
+    sleep.assert_not_called()

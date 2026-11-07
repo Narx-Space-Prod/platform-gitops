@@ -2,6 +2,10 @@ name: 03 - Recovery
 
 on:
   status:
+  pull_request:
+    types: [closed]
+    branches: [main]
+    paths: [environments/production/release.json]
   workflow_dispatch:
     inputs:
       environment:
@@ -22,9 +26,6 @@ jobs:
        (github.event.sender.login == vars.NARX_DEPLOYMENT_BOT_LOGIN &&
         contains(fromJSON('["narx/deploy-qa","narx/deploy-production"]'), github.event.context) &&
         github.event.state == 'failure'))
-    concurrency:
-      group: release-recovery
-      cancel-in-progress: false
     permissions:
       contents: read
       packages: read
@@ -34,3 +35,14 @@ jobs:
     with:
       environment: ${{ inputs.environment || (github.event.context == 'narx/deploy-qa' && 'qa' || 'production') }}
       operation: ${{ github.event_name == 'workflow_dispatch' && 'rollback' || 'recover' }}
+  production-observation:
+    name: Verify manually approved Production release
+    if: github.repository == 'Narx-Space-Prod/platform-gitops' && vars.DELIVERY_ENABLED == 'true' && github.event_name == 'pull_request' && github.event.pull_request.merged == true && github.event.pull_request.head.repo.full_name == github.repository
+    permissions:
+      contents: read
+      statuses: read
+      pull-requests: read
+    uses: ./.github/workflows/delivery-observe.yml
+    with:
+      environment: production
+      operation: observe-production

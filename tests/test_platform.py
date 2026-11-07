@@ -315,13 +315,13 @@ class PlatformPolicy(unittest.TestCase):
         for event in ('deployed','failed'):
             self.assertEqual(annotations['notifications.argoproj.io/subscribe.narx-slack-'+event+'.slack'],'')
             self.assertNotIn('notifications.argoproj.io/subscribe.narx-slack-'+event+'.webhook',annotations)
-        workflow=yaml.load((ROOT/'.github/workflows/delivery.yml').read_text(),Loader=yaml.BaseLoader)
+        workflow=yaml.load((ROOT/'.github/workflows/commerce.yml').read_text(),Loader=yaml.BaseLoader)
         self.assertNotIn('status',workflow['on'])
-        self.assertIn('release-operations',workflow['concurrency']['group'])
+        self.assertNotIn('concurrency',workflow)
         recovery=yaml.load((ROOT/'.github/workflows/recovery.yml').read_text(),Loader=yaml.BaseLoader)
         self.assertIn('status',recovery['on'])
         self.assertNotIn('concurrency',recovery)
-        self.assertEqual(recovery['jobs']['recovery']['concurrency']['group'],'release-recovery')
+        self.assertNotIn('concurrency',recovery['jobs']['recovery'])
         guard=recovery['jobs']['recovery']['if']
         for clause in ('github.event.sender.login == vars.NARX_DEPLOYMENT_BOT_LOGIN',
                        'github.event.context', "github.event.state == 'failure'", 'refs/heads/main',
