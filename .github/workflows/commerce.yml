@@ -13,19 +13,19 @@ jobs:
   tests:
     name: 01 - Unit integration and security gates
     if: github.repository == 'Narx-Space-Prod/platform-gitops' && vars.DELIVERY_ENABLED == 'true' && github.ref == 'refs/heads/main'
-    uses: ./.github/workflows/verify.yml
+    uses: ./.github/workflows/reusable-verify.yml
     with:
       operation: tests
   quality:
     name: 02 - Sonar quality gate
     needs: tests
-    uses: ./.github/workflows/verify.yml
+    uses: ./.github/workflows/reusable-verify.yml
     with:
       operation: quality
   publication:
     name: 03 - Signed publication and complete source CI
     needs: quality
-    uses: ./.github/workflows/verify.yml
+    uses: ./.github/workflows/reusable-verify.yml
     with:
       operation: publication
   dev:
@@ -35,7 +35,7 @@ jobs:
     permissions:
       contents: read
       packages: read
-    uses: ./.github/workflows/delivery-stage.yml
+    uses: ./.github/workflows/reusable-release-stage.yml
     secrets:
       NARX_RELEASE_APP_PRIVATE_KEY: ${{ secrets.NARX_RELEASE_APP_PRIVATE_KEY }}
     with:
@@ -48,7 +48,7 @@ jobs:
       contents: read
       statuses: read
       pull-requests: read
-    uses: ./.github/workflows/verify.yml
+    uses: ./.github/workflows/reusable-verify.yml
     with:
       environment: dev
       release-id: ${{ needs.dev.outputs.release-id }}
@@ -81,7 +81,7 @@ jobs:
     permissions:
       contents: read
       packages: read
-    uses: ./.github/workflows/delivery-stage.yml
+    uses: ./.github/workflows/reusable-release-stage.yml
     secrets:
       NARX_RELEASE_APP_PRIVATE_KEY: ${{ secrets.NARX_RELEASE_APP_PRIVATE_KEY }}
     with:
@@ -95,7 +95,7 @@ jobs:
       contents: read
       statuses: read
       pull-requests: read
-    uses: ./.github/workflows/verify.yml
+    uses: ./.github/workflows/reusable-verify.yml
     with:
       environment: qa
       release-id: ${{ needs.dev.outputs.release-id }}
@@ -106,28 +106,42 @@ jobs:
     permissions:
       contents: read
       packages: read
-    uses: ./.github/workflows/delivery-stage.yml
+    uses: ./.github/workflows/reusable-release-stage.yml
     secrets:
       NARX_RELEASE_APP_PRIVATE_KEY: ${{ secrets.NARX_RELEASE_APP_PRIVATE_KEY }}
     with:
       environment: production
       release-id: ${{ needs.dev.outputs.release-id }}
-  production:
-    name: 09 - Production approval rollout and smoke
+  approval:
+    name: 09 - Await Production PR ${{ needs.production-pr.outputs.pr-number }} approval and merge
     needs: [dev, production-pr]
-    if: needs.dev.outputs.active == 'true'
+    if: needs.dev.outputs.active == 'true' && needs.production-pr.outputs.pr-number != ''
     permissions:
       contents: read
       statuses: read
       pull-requests: read
-    uses: ./.github/workflows/verify.yml
+    uses: ./.github/workflows/reusable-verify.yml
+    with:
+      operation: wait-approval
+      pr-number: ${{ needs.production-pr.outputs.pr-number }}
+      release-id: ${{ needs.dev.outputs.release-id }}
+      timeout-seconds: 3600
+  production:
+    name: 10 - Production rollout and smoke
+    needs: [dev, production-pr, approval]
+    if: ${{ !cancelled() && needs.dev.outputs.active == 'true' && needs.production-pr.result == 'success' && (needs.approval.result == 'success' || needs.approval.result == 'skipped') }}
+    permissions:
+      contents: read
+      statuses: read
+      pull-requests: read
+    uses: ./.github/workflows/reusable-verify.yml
     with:
       environment: production
       release-id: ${{ needs.dev.outputs.release-id }}
       timeout-seconds: 3600
   summary:
     name: Delivery overview and next action
-    needs: [tests, quality, publication, dev, verify-dev, business, qa, verify-qa, production-pr, production]
+    needs: [tests, quality, publication, dev, verify-dev, business, qa, verify-qa, production-pr, approval, production]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -151,7 +165,7 @@ jobs:
               for key,stage in stages.items():
                   output.write(f"| {key.replace('-', ' ')} | {stage['result']} |\n")
               if production.get('pr-url'):
-                  output.write('\n[Production approval PR]('+production['pr-url']+'). This run waits for the approved merge and trusted Production smoke evidence. Approval must arrive within the one-hour observation window; otherwise the run fails and recovery/observation remains available.\n')
+                  output.write('\n[Production approval PR]('+production['pr-url']+'). The separate Await Production PR approval and merge stage links to this PR, then Production rollout verification starts. Approval must arrive within one hour; otherwise the run fails and recovery/observation remains available.\n')
               if stages['publication'].get('outputs',{}).get('deploy')=='false':
                   output.write('\nCI passed with no runtime changes; deployment was intentionally skipped.\n')
               if dev.get('active')=='false':

@@ -1,6 +1,6 @@
 # actionlint 1.7.12 lacks GitHub's documented concurrency.queue field.
 # Keep the exception confined to that exact field; tests validate its value.
 paths:
-  ".github/workflows/delivery-stage.yml":
+  ".github/workflows/reusable-release-stage.yml":
     ignore:
       - 'unexpected key "queue" for "concurrency" section'

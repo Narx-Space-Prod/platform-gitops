@@ -1,4 +1,4 @@
-name: Read-only verification
+name: Reusable - Read-only verification
 
 on:
   workflow_call:
@@ -6,6 +6,9 @@ on:
       deploy:
         value: ${{ jobs.observe.outputs.deploy }}
     inputs:
+      pr-number:
+        default: ''
+        type: string
       timeout-seconds:
         default: 1200
         type: number
@@ -27,7 +30,7 @@ jobs:
     name: Verify trusted evidence
     if: github.repository == 'Narx-Space-Prod/platform-gitops' && github.ref == 'refs/heads/main' && vars.DELIVERY_ENABLED == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: ${{ (inputs.operation == 'wait' || inputs.operation == 'observe-production') && 65 || 35 }}
+    timeout-minutes: ${{ (inputs.operation == 'wait' || inputs.operation == 'observe-production' || inputs.operation == 'wait-approval') && 65 || 35 }}
     outputs:
       deploy: ${{ steps.gate.outputs.deploy }}
     permissions:
@@ -47,11 +50,13 @@ jobs:
           TARGET_ENVIRONMENT: ${{ inputs.environment }}
           RELEASE_ID: ${{ inputs.release-id }}
           WAIT_TIMEOUT: ${{ inputs.timeout-seconds }}
+          PR_NUMBER: ${{ inputs.pr-number }}
           OPERATION: ${{ inputs.operation }}
         run: |
           case "$OPERATION" in
             tests|quality|publication) python3 scripts/source_gate.py "$OPERATION" ;;
             wait) python3 scripts/delivery.py wait "$TARGET_ENVIRONMENT" --bundle "$RELEASE_ID" --timeout "$WAIT_TIMEOUT" ;;
+            wait-approval) python3 scripts/delivery.py wait-approval --pr-number "$PR_NUMBER" --bundle "$RELEASE_ID" --timeout "$WAIT_TIMEOUT" ;;
             observe-production) python3 scripts/delivery.py observe-production ;;
             *) echo 'Unsupported verification operation.' >&2; exit 1 ;;
           esac
