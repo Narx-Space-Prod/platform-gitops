@@ -7,12 +7,13 @@ from pathlib import Path
 import re
 import subprocess
 import time
+from delivery import run
 
 REPOS = {'Narx-Space-Prod/commerce-'+name for name in ('frontend','catalogue','orders')}
 PREFIX = 'Application / '
 
 def api(path):
-    return json.loads(subprocess.check_output(['gh','api',path],text=True))
+    return json.loads(run('gh','api',path))
 
 def identity(event):
     source=event.get('client_payload',{})
@@ -41,7 +42,7 @@ def observe(gate,event,timeout=1800):
         record=api(f'repos/{repo}/actions/runs/{run_id}')
         validate(record,repo,commit)
         # Fetch all attempts' current jobs with pagination (Orders adds companion jobs).
-        jobs=json.loads(subprocess.check_output(['gh','api','--paginate','--slurp',f'repos/{repo}/actions/runs/{run_id}/jobs?per_page=100'],text=True))
+        jobs=json.loads(run('gh','api','--paginate','--slurp',f'repos/{repo}/actions/runs/{run_id}/jobs?per_page=100'))
         by_name={j['name']:j for page in jobs for j in page['jobs']}
         selected=[by_name.get(name) for name in required(gate,repo)]
         if any(j and j.get('status')=='completed' and j.get('conclusion')!='success' for j in selected):

@@ -248,6 +248,16 @@ The graph verifies the actual source unit/integration/security jobs, waits for S
 
 Production still requires an independently reviewed GitOps release PR. The same master run observes its merge and trusted rollout/smoke evidence for up to one hour. A timeout is a failed observation, never permission to merge or a deployment success. Recovery and the existing Production merge observer remain available afterward. Read-only observer jobs receive no App secrets or Kubernetes credentials.
 
-Releases are serialized using the existing `release-operations` concurrency group. GitHub retains the latest pending request; intake verifies that its source release has not been superseded. The graph fails visibly if its source release is no longer selected. A master can include other components' latest verified releases; the immutable bundle is identical across Dev, QA and Production.
+Only release-state mutations are serialized, using the shared `release-state-mutation` group for promotion and recovery with GitHub’s bounded multi-entry queue. CI and approval observation hold no writer lock; intake verifies that its source release has not been superseded. The graph fails visibly if its source release is no longer selected. A master can include other components' latest verified releases; the immutable bundle is identical across Dev, QA and Production.
 
-Activation order: merge the master first, merge the shared CI intake next, then pin service callers to the final reviewed shared revision. Older callers continue to use Commerce Delivery until migrated. Do not call the new view active before the callers are migrated and the end-to-end run is verified.
+Activation order: merge the master first, merge the shared CI intake next, then pin service callers to the final reviewed shared revision. All current callers use the master; the legacy Delivery workflow is retired. Do not call the new view active before the callers are migrated and the end-to-end run is verified.
+
+### Orchestration hardening
+
+Promotion and recovery use the same short-lived mutation lock. Production approval remains an independent release PR; waiting for it consumes a bounded observation runner, but no longer blocks later Dev/QA mutation jobs. Concurrent masters can encounter superseded bundles and fail closed; this is explicit supersession, not successful delivery of the wrong version. GitHub’s `queue: max` supports a bounded queue of up to100 pending jobs, not an unlimited durable queue.
+
+The old scheduled/dispatch Delivery controller is removed. Recovery owns the narrowly scoped Production-merge verification fallback. Control scripts come from the workflow revision; live release JSON is read separately from fetched main. Read-only GitHub API transport failures have bounded backoff; failed writes, authorization and signatures are not silently retried.
+
+The pinned latest actionlint1.7.12 does not understand GitHub’s documented concurrency.queue field. The repository config suppresses that one unsupported-key diagnostic in delivery-stage.yml only; regression tests enforce the exact supported queue value and shared lock. Other workflow validation remains enabled.
+
+Remaining follow-up work: versioned CI evidence instead of display-name matching; targeted complete business-flow E2E; runner-free PR-approval waiting if retaining the same long-lived master run. These are not claimed fixed by this change.

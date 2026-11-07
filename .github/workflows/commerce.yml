@@ -6,11 +6,7 @@ on:
     types: [ci-started]
 permissions:
   contents: read
-# Serialize releases through approval. GitHub keeps only the latest pending intake;
-# immutable release discovery safely coalesces older pending releases.
-concurrency:
-  group: release-operations
-  cancel-in-progress: false
+# Only release-state mutations are serialized; human approval holds no writer lock.
 jobs:
   tests:
     name: 01 - Unit integration and security gates
