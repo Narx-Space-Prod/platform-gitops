@@ -6,26 +6,28 @@ on:
     types: [ci-started]
 permissions:
   contents: read
+  statuses: read
+  pull-requests: read
 # Only release-state mutations are serialized; human approval holds no writer lock.
 jobs:
   tests:
     name: 01 - Unit integration and security gates
     if: github.repository == 'Narx-Space-Prod/platform-gitops' && vars.DELIVERY_ENABLED == 'true' && github.ref == 'refs/heads/main'
-    uses: ./.github/workflows/source-gate.yml
+    uses: ./.github/workflows/verify.yml
     with:
-      gate: tests
+      operation: tests
   quality:
     name: 02 - Sonar quality gate
     needs: tests
-    uses: ./.github/workflows/source-gate.yml
+    uses: ./.github/workflows/verify.yml
     with:
-      gate: quality
+      operation: quality
   publication:
     name: 03 - Signed publication and complete source CI
     needs: quality
-    uses: ./.github/workflows/source-gate.yml
+    uses: ./.github/workflows/verify.yml
     with:
-      gate: publication
+      operation: publication
   dev:
     needs: publication
     name: 04 - Prepare immutable Dev release
@@ -46,7 +48,7 @@ jobs:
       contents: read
       statuses: read
       pull-requests: read
-    uses: ./.github/workflows/delivery-observe.yml
+    uses: ./.github/workflows/verify.yml
     with:
       environment: dev
       release-id: ${{ needs.dev.outputs.release-id }}
@@ -70,68 +72,8 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
-      - name: Select the exact Dev-verified images without rebuilding
-        id: bundle
-        run: |
-          python3 - <<'PYTHON'
-          import json,os,secrets,subprocess,sys
-          from pathlib import Path
-          sys.path.insert(0,'scripts'); import delivery
-          subprocess.run(['git','fetch','origin','main'],check=True)
-          value=json.loads(subprocess.check_output(['git','show','origin/main:environments/dev/release.json'],text=True))
-          assert delivery.validate(value) and value['release']['id']==os.environ['EXPECTED_BUNDLE'], 'Dev release was superseded'
-          Path(os.environ['RUNNER_TEMP'],'business-bundle.json').write_text(json.dumps(value))
-          with open(os.environ['GITHUB_OUTPUT'],'a') as out:
-              out.write('orders-commit='+value['release']['components']['orders']['commit']+'\n')
-          os.umask(0o077)
-          Path('local/.env').write_text(''.join(k+'='+secrets.token_hex(32)+'\n' for k in
-              ('DATABASE_PASSWORD','SESSION_SECRET','FIXTURE_PAYMENT_SECRET','FIXTURE_WEBHOOK_SECRET'))+
-              'APP_BIND_ADDRESS=127.0.0.1\nAPP_PORT=18080\nPUBLIC_ORIGIN=http://127.0.0.1:18080\nDELIVERY_VISIBILITY_SECONDS=15\n')
-          PYTHON
-      - name: Checkout the matching sandbox payment fixture only
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          repository: Narx-Space-Prod/commerce-orders
-          ref: ${{ steps.bundle.outputs.orders-commit }}
-          path: fixture-source
-          sparse-checkout: tests/fixtures
-          persist-credentials: false
-      - name: Authenticate private image reads
-        env:
-          REGISTRY_TOKEN: ${{ github.token }}
-        run: printf '%s' "$REGISTRY_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
-      - name: Start isolated exact-image sandbox and test business failures
-        run: |
-          set -euo pipefail
-          docker compose --env-file local/.env -f local/compose.yaml config --format json > "$RUNNER_TEMP/business-compose.json"
-          python3 - <<'PYTHON'
-          import json,os
-          from pathlib import Path
-          config=json.loads(Path(os.environ['RUNNER_TEMP'],'business-compose.json').read_text())
-          facts=json.loads(Path(os.environ['RUNNER_TEMP'],'business-bundle.json').read_text())['release']['components']
-          for service,component in {'frontend':'frontend','catalogue':'catalogue','cart':'cart','orders':'orders','outbox-publisher':'orders','receipt-worker':'orders'}.items():
-              config['services'][service].pop('build',None)
-              config['services'][service]['image']=facts[component]['image']+'@'+facts[component]['digest']
-          config['services']['razorpay-fixture']['volumes'][0]['source']=str(Path('fixture-source/tests/fixtures/razorpay.py').resolve())
-          Path(os.environ['RUNNER_TEMP'],'business-compose.json').write_text(json.dumps(config))
-          PYTHON
-          docker compose --project-name "$NARX_COMPOSE_PROJECT" -f "$RUNNER_TEMP/business-compose.json" up --no-build --wait --wait-timeout 600
-          python3 -m unittest discover -s tests -p test_local_stack.py -v
-      - name: Diagnose sandbox failure without dumping configuration or credentials
-        if: failure()
-        run: |
-          if [ -f "$RUNNER_TEMP/business-compose.json" ]; then
-            docker compose --project-name "$NARX_COMPOSE_PROJECT" -f "$RUNNER_TEMP/business-compose.json" ps --all
-            docker compose --project-name "$NARX_COMPOSE_PROJECT" -f "$RUNNER_TEMP/business-compose.json" logs --tail 100 receipt-worker outbox-publisher
-          fi
-      - name: Remove only this sandbox and its ephemeral volumes
-        if: always()
-        run: |
-          if [ -f "$RUNNER_TEMP/business-compose.json" ]; then
-            docker compose --project-name "$NARX_COMPOSE_PROJECT" -f "$RUNNER_TEMP/business-compose.json" down --volumes --remove-orphans
-          fi
-          docker logout ghcr.io
-          rm -f local/.env
+      - name: Validate isolated business flows
+        uses: ./.github/actions/business
   qa:
     name: 06 - Promote verified bundle to QA
     needs: [dev, verify-dev, business]
@@ -153,7 +95,7 @@ jobs:
       contents: read
       statuses: read
       pull-requests: read
-    uses: ./.github/workflows/delivery-observe.yml
+    uses: ./.github/workflows/verify.yml
     with:
       environment: qa
       release-id: ${{ needs.dev.outputs.release-id }}
@@ -178,7 +120,7 @@ jobs:
       contents: read
       statuses: read
       pull-requests: read
-    uses: ./.github/workflows/delivery-observe.yml
+    uses: ./.github/workflows/verify.yml
     with:
       environment: production
       release-id: ${{ needs.dev.outputs.release-id }}
@@ -201,16 +143,13 @@ jobs:
           stages=json.loads(os.environ['STAGES'])
           dev=stages['dev'].get('outputs',{})
           production=stages['production-pr'].get('outputs',{})
-          labels={'tests':'Source tests and security','quality':'Sonar quality','publication':'Signed publication and completed CI','dev':'Prepare immutable Dev release','verify-dev':'Dev deployment + smoke',
-                  'business':'Isolated checkout payment refund and queue E2E','qa':'Promote QA','verify-qa':'QA deployment + smoke',
-                  'production-pr':'Request Production PR approval','production':'Observe approved Production deployment'}
           with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as output:
               output.write('## Commerce CI/CD\n\n')
               if dev.get('release-id'):
                   output.write('Release: `'+dev['release-id']+'`\n\n')
               output.write('| Stage | Job result |\n| --- | --- |\n')
-              for key,label in labels.items():
-                  output.write(f"| {label} | {stages[key]['result']} |\n")
+              for key,stage in stages.items():
+                  output.write(f"| {key.replace('-', ' ')} | {stage['result']} |\n")
               if production.get('pr-url'):
                   output.write('\n[Production approval PR]('+production['pr-url']+'). This run waits for the approved merge and trusted Production smoke evidence. Approval must arrive within the one-hour observation window; otherwise the run fails and recovery/observation remains available.\n')
               if stages['publication'].get('outputs',{}).get('deploy')=='false':

@@ -82,7 +82,7 @@ class DeliveryGraph(unittest.TestCase):
    self.assertNotIn('environment',jobs[name])
    self.assertEqual(jobs[name]['permissions']['statuses'],'read')
    self.assertEqual(jobs[name]['permissions']['contents'],'read')
-  observer=yaml.safe_load((root/'.github/workflows/delivery-observe.yml').read_text())['jobs']['observe']
+  observer=yaml.safe_load((root/'.github/workflows/verify.yml').read_text())['jobs']['observe']
   self.assertNotIn('environment',observer)
   self.assertNotIn('secrets',observer)
   self.assertEqual(observer['permissions'],{'contents':'read','statuses':'read','pull-requests':'read'})
@@ -134,7 +134,7 @@ class OrchestrationOwnership(unittest.TestCase):
   self.assertEqual(mutation['concurrency'],{'group':'release-state-mutation','cancel-in-progress':False,'queue':'max'})
   self.assertNotIn('concurrency',load('recovery.yml')['jobs']['recovery'])
   self.assertIn('production-observation',load('recovery.yml')['jobs'])
-  for name in ('delivery-stage.yml','delivery-observe.yml'):
+  for name in ('delivery-stage.yml','verify.yml'):
    jobs=load(name)['jobs']
    for job in jobs.values():
     for step in job.get('steps',[]):
@@ -202,7 +202,7 @@ class BusinessGateSafety(unittest.TestCase):
  def test_business_test_blocks_qa_uses_exact_images_and_cleans_only_its_project(self):
   root=Path(__file__).resolve().parents[1]
   jobs=yaml.safe_load((root/'.github/workflows/commerce.yml').read_text())['jobs']
-  gate=jobs['business'];steps=gate['steps'];text='\n'.join(s.get('run','') for s in steps)
+  gate=jobs['business'];steps=yaml.safe_load((root/'.github/actions/business/action.yml').read_text())['runs']['steps'];text='\n'.join(s.get('run','') for s in steps)
   self.assertEqual(gate['needs'],['dev','verify-dev'])
   self.assertIn('business',jobs['qa']['needs'])
   self.assertEqual(gate['env']['NARX_TEST_URL'],'http://127.0.0.1:18080')
@@ -239,3 +239,25 @@ class RetiredPathCleanup(unittest.TestCase):
    d.recover_stage('qa',manual=True)
    self.assertEqual(propose.call_args.args[1]['release']['components'],sample.old)
    self.assertEqual(verify.call_count,4)
+
+class CompactWorkflowStructure(unittest.TestCase):
+ def test_master_reuses_one_read_only_verifier_and_business_implementation(self):
+  root=Path(__file__).resolve().parents[1]
+  load=lambda name:yaml.safe_load((root/'.github/workflows'/name).read_text())
+  jobs=load('commerce.yml')['jobs']
+  for name,operation in [('tests','tests'),('quality','quality'),('publication','publication'),('verify-dev','wait'),('verify-qa','wait'),('production','wait')]:
+   self.assertEqual(jobs[name]['uses'],'./.github/workflows/verify.yml')
+   self.assertEqual(jobs[name].get('with',{}).get('operation','wait'),operation)
+  steps=jobs['business']['steps']
+  self.assertEqual(len(steps),2)
+  self.assertEqual(steps[-1]['uses'],'./.github/actions/business')
+  action=yaml.safe_load((root/'.github/actions/business/action.yml').read_text())
+  self.assertEqual(action['runs']['using'],'composite')
+  for step in action['runs']['steps']:
+   if 'run' in step:self.assertEqual(step['shell'],'bash')
+  verifier=load('verify.yml')['jobs']['observe']
+  self.assertNotIn('environment',verifier)
+  self.assertNotIn('secrets',verifier)
+  self.assertTrue(all(v=='read' for v in verifier['permissions'].values()))
+  self.assertFalse((root/'.github/workflows/source-gate.yml').exists())
+  self.assertFalse((root/'.github/workflows/delivery-observe.yml').exists())
