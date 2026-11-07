@@ -487,6 +487,40 @@ def wait_for_deployment(environment, expected, timeout=1200):
     raise ValueError('deployment evidence timed out: ' + environment)
 
 
+def wait_for_approval(number, expected, timeout=3600):
+    require(type(number) is int and number > 0, 'invalid Production PR number')
+    require(isinstance(expected, str) and re.fullmatch('[a-f0-9]{64}', expected), 'invalid expected release ID')
+    require(0 < timeout <= 3600, 'invalid approval timeout')
+    repository = 'Narx-Space-Prod/platform-gitops'
+    url = f'https://github.com/{repository}/pull/{number}'
+    if os.environ.get('GITHUB_STEP_SUMMARY'):
+        with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
+            summary.write(f'## Await Production approval and merge\n\n[Open PR #{number}]({url}) for independent code-owner review and merge.\n\nRelease: `{expected}`. This job observes only; it cannot approve or merge.\n')
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        pr = api(f'repos/{repository}/pulls/{number}')
+        require(pr.get('base', {}).get('ref') == 'main'
+                and pr.get('head', {}).get('repo', {}).get('full_name') == repository
+                and pr.get('head', {}).get('ref') == 'release/production-' + expected[:16],
+                'not the expected internal Production release PR')
+        if pr.get('merged') is True:
+            revision = pr.get('merge_commit_sha')
+            require(isinstance(revision, str) and re.fullmatch('[a-f0-9]{40}', revision), 'invalid Production merge revision')
+            files = api(f'repos/{repository}/pulls/{number}/files?per_page=100')
+            require(len(files) == 1 and files[0]['filename'] == 'environments/production/release.json'
+                    and files[0]['status'] == 'modified' and not files[0].get('previous_filename'),
+                    'Production approval must refer to a release-only PR')
+            run('git', 'fetch', 'origin', 'main')
+            value = json.loads(run('git', 'show', revision + ':environments/production/release.json'))
+            require(validate(value) and value['release']['id'] == expected, 'approved Production bundle does not match')
+            print('Production PR merged:', url)
+            return
+        require(pr.get('state') == 'open', 'Production release PR was closed without merge')
+        print('Awaiting Production approval and merge:', url, flush=True)
+        time.sleep(20)
+    raise ValueError('Production PR approval timed out: ' + url)
+
+
 def recover_stage(environment, manual=False):
     require(environment in (ENVIRONMENTS if manual else ('qa', 'production')), 'automatic recovery is limited to QA/production')
     run('git', 'fetch', 'origin', 'main')
@@ -526,11 +560,12 @@ def observe_production():
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('operation', choices=['validate', 'fixtures', 'rollback', 'verify-candidate', 'stage', 'wait', 'recover', 'observe-production'])
+    parser.add_argument('operation', choices=['validate', 'fixtures', 'rollback', 'verify-candidate', 'stage', 'wait', 'wait-approval', 'recover', 'observe-production'])
     parser.add_argument('argument', nargs='?')
     parser.add_argument('--environment', choices=ENVIRONMENTS)
     parser.add_argument('--revision')
     parser.add_argument('--bundle')
+    parser.add_argument('--pr-number', type=int)
     parser.add_argument('--timeout', type=int, default=1200)
     args = parser.parse_args()
     if args.operation == 'fixtures':
@@ -541,6 +576,8 @@ def main():
     elif args.operation == 'wait':
         require(0 < args.timeout <= 3600, 'invalid observation timeout')
         wait_for_deployment(args.argument, args.bundle, args.timeout)
+    elif args.operation == 'wait-approval':
+        wait_for_approval(args.pr_number, args.bundle, args.timeout)
     elif args.operation == 'recover':
         recover_stage(args.argument)
     elif args.operation == 'observe-production':

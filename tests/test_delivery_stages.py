@@ -82,11 +82,11 @@ class DeliveryGraph(unittest.TestCase):
    self.assertNotIn('environment',jobs[name])
    self.assertEqual(jobs[name]['permissions']['statuses'],'read')
    self.assertEqual(jobs[name]['permissions']['contents'],'read')
-  observer=yaml.safe_load((root/'.github/workflows/verify.yml').read_text())['jobs']['observe']
+  observer=yaml.safe_load((root/'.github/workflows/reusable-verify.yml').read_text())['jobs']['observe']
   self.assertNotIn('environment',observer)
   self.assertNotIn('secrets',observer)
   self.assertEqual(observer['permissions'],{'contents':'read','statuses':'read','pull-requests':'read'})
-  self.assertEqual(jobs['production']['needs'],['dev','production-pr'])
+  self.assertEqual(jobs['production']['needs'],['dev','production-pr','approval'])
 
 class ReleaseSecretContract(unittest.TestCase):
  def test_only_release_stages_receive_named_secret(self):
@@ -95,7 +95,7 @@ class ReleaseSecretContract(unittest.TestCase):
   for filename in ('commerce.yml','recovery.yml'):
    workflow=yaml.safe_load((root/'.github/workflows'/filename).read_text())
    for job in workflow['jobs'].values():
-    if job.get('uses','').endswith('/delivery-stage.yml'):
+    if job.get('uses','').endswith('/reusable-release-stage.yml'):
      self.assertEqual(set(job['secrets']),{'NARX_RELEASE_APP_PRIVATE_KEY'})
     else:
      self.assertNotIn('secrets',job)
@@ -118,7 +118,7 @@ class MasterSourceGates(unittest.TestCase):
   self.assertEqual(jobs['quality']['needs'],'tests')
   self.assertEqual(jobs['publication']['needs'],'quality')
   self.assertEqual(jobs['dev']['needs'],'publication')
-  self.assertEqual(jobs['production']['needs'],['dev','production-pr'])
+  self.assertEqual(jobs['production']['needs'],['dev','production-pr','approval'])
   self.assertEqual(jobs['production']['with']['release-id'],"${{ needs.dev.outputs.release-id }}")
   self.assertEqual(jobs['production']['with']['timeout-seconds'],3600)
   self.assertNotIn('secrets',jobs['production'])
@@ -130,11 +130,11 @@ class OrchestrationOwnership(unittest.TestCase):
   load=lambda name: yaml.safe_load((root/'.github/workflows'/name).read_text())
   self.assertFalse((root/'.github/workflows/delivery.yml').exists())
   self.assertNotIn('concurrency',load('commerce.yml'))
-  mutation=load('delivery-stage.yml')['jobs']['advance']
+  mutation=load('reusable-release-stage.yml')['jobs']['advance']
   self.assertEqual(mutation['concurrency'],{'group':'release-state-mutation','cancel-in-progress':False,'queue':'max'})
   self.assertNotIn('concurrency',load('recovery.yml')['jobs']['recovery'])
   self.assertIn('production-observation',load('recovery.yml')['jobs'])
-  for name in ('delivery-stage.yml','verify.yml'):
+  for name in ('reusable-release-stage.yml','reusable-verify.yml'):
    jobs=load(name)['jobs']
    for job in jobs.values():
     for step in job.get('steps',[]):
@@ -246,7 +246,7 @@ class CompactWorkflowStructure(unittest.TestCase):
   load=lambda name:yaml.safe_load((root/'.github/workflows'/name).read_text())
   jobs=load('commerce.yml')['jobs']
   for name,operation in [('tests','tests'),('quality','quality'),('publication','publication'),('verify-dev','wait'),('verify-qa','wait'),('production','wait')]:
-   self.assertEqual(jobs[name]['uses'],'./.github/workflows/verify.yml')
+   self.assertEqual(jobs[name]['uses'],'./.github/workflows/reusable-verify.yml')
    self.assertEqual(jobs[name].get('with',{}).get('operation','wait'),operation)
   steps=jobs['business']['steps']
   self.assertEqual(len(steps),2)
@@ -255,9 +255,43 @@ class CompactWorkflowStructure(unittest.TestCase):
   self.assertEqual(action['runs']['using'],'composite')
   for step in action['runs']['steps']:
    if 'run' in step:self.assertEqual(step['shell'],'bash')
-  verifier=load('verify.yml')['jobs']['observe']
+  verifier=load('reusable-verify.yml')['jobs']['observe']
   self.assertNotIn('environment',verifier)
   self.assertNotIn('secrets',verifier)
   self.assertTrue(all(v=='read' for v in verifier['permissions'].values()))
   self.assertFalse((root/'.github/workflows/source-gate.yml').exists())
   self.assertFalse((root/'.github/workflows/delivery-observe.yml').exists())
+
+class ProductionApprovalVisibility(unittest.TestCase):
+ def setUp(self):
+  sample=DeliveryStages();sample.setUp();self.bundle=sample.bundle;self.release=self.bundle['release']['id']
+  self.pr={'state':'open','merged':False,'base':{'ref':'main'},'head':{'repo':{'full_name':'Narx-Space-Prod/platform-gitops'},'ref':'release/production-'+self.release[:16]}}
+ def test_waits_for_merge_not_just_an_open_pr_then_checks_exact_bundle(self):
+  merged={**self.pr,'merged':True,'state':'closed','merge_commit_sha':'c'*40}
+  files=[{'filename':'environments/production/release.json','status':'modified'}]
+  with patch.object(d,'api',side_effect=[self.pr,merged,files]),patch.object(d,'run',return_value=json.dumps(self.bundle)),patch.object(d.time,'sleep') as sleep:
+   d.wait_for_approval(12,self.release)
+   sleep.assert_called_once()
+ def test_declined_fork_wrong_bundle_and_extra_files_are_rejected(self):
+  bads=[{**self.pr,'state':'closed'},{**self.pr,'head':{'repo':{'full_name':'attacker/fork'}}}]
+  for pr in bads:
+   with patch.object(d,'api',return_value=pr),patch.object(d.time,'sleep') as sleep:
+    with self.assertRaises(ValueError):d.wait_for_approval(12,self.release)
+    sleep.assert_not_called()
+  merged={**self.pr,'merged':True,'merge_commit_sha':'c'*40}
+  for files,value in [([{'filename':'README.md','status':'modified'}],self.bundle),([{'filename':'environments/production/release.json','status':'modified'}],{'release':{'ready':False}})]:
+   with patch.object(d,'api',side_effect=[merged,files]),patch.object(d,'run',return_value=json.dumps(value)):
+    with self.assertRaises(ValueError):d.wait_for_approval(12,self.release)
+ def test_approval_timeout_fails_and_has_no_write_capability(self):
+  with patch.object(d.time,'monotonic',side_effect=[0,4000]),patch.object(d,'api') as api:
+   with self.assertRaisesRegex(ValueError,'timed out'):d.wait_for_approval(12,self.release)
+   api.assert_not_called()
+ def test_master_has_distinct_approval_and_rollout_nodes(self):
+  root=Path(__file__).resolve().parents[1]
+  jobs=yaml.safe_load((root/'.github/workflows/commerce.yml').read_text())['jobs']
+  self.assertIn('Await Production PR',jobs['approval']['name'])
+  self.assertEqual(jobs['approval']['with']['operation'],'wait-approval')
+  self.assertIn('approval',jobs['production']['needs'])
+  self.assertIn("needs.approval.result == 'success'",jobs['production']['if'])
+  self.assertNotIn('secrets',jobs['approval'])
+  self.assertTrue(all(value=='read' for value in jobs['approval']['permissions'].values()))

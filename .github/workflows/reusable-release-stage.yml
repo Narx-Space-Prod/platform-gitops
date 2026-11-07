@@ -1,4 +1,4 @@
-name: Reusable release stage
+name: Reusable - Release mutation
 
 on:
   workflow_call:
