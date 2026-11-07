@@ -261,3 +261,11 @@ The old scheduled/dispatch Delivery controller is removed. Recovery owns the nar
 The pinned latest actionlint1.7.12 does not understand GitHub’s documented concurrency.queue field. The repository config suppresses that one unsupported-key diagnostic in delivery-stage.yml only; regression tests enforce the exact supported queue value and shared lock. Other workflow validation remains enabled.
 
 Remaining follow-up work: versioned CI evidence instead of display-name matching; targeted complete business-flow E2E; runner-free PR-approval waiting if retaining the same long-lived master run. These are not claimed fixed by this change.
+
+### Versioned gates and isolated business E2E
+
+For evidenceVersion1 intake, the master reads versioned test, quality and publication artifacts from the exact source run and current attempt. It validates archive bounds, artifact ownership, commit, schema and image identities; no uploaded code is executed. Missing or invalid v1 evidence fails closed. Legacy job-name matching remains only for already-dispatched/unmigrated callers.
+
+After verified Dev and before QA, the master starts a disposable hosted Compose sandbox using those exact image digests, with no application rebuild. It checks out only the matching Orders payment fixture and runs the existing checkout/admin/payment/refund/outbox/replay/DLQ test using a simulator. The sandbox uses random local credentials and ephemeral volumes; cleanup is scoped to its unique Compose project. This gate never connects to Kubernetes, production data, AWS or real Razorpay transactions. Full hosted execution must pass before treating this addition as validated.
+
+Production still uses the independently reviewed GitOps release PR. Its bounded observation runner remains a conscious limitation: a runner-free pause would require changing the approval/orchestration model. It no longer owns a global release lock. This change does not claim unlimited durable queueing, formal SLSA certification or database-safe automatic rollback for arbitrary schema changes.

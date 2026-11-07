@@ -74,7 +74,7 @@ class DeliveryGraph(unittest.TestCase):
   workflow=yaml.safe_load((root/'.github/workflows/commerce.yml').read_text())
   jobs=workflow['jobs']
   self.assertEqual(jobs['verify-dev']['needs'],'dev')
-  self.assertEqual(jobs['qa']['needs'],['dev','verify-dev'])
+  self.assertEqual(jobs['qa']['needs'],['dev','verify-dev','business'])
   self.assertEqual(jobs['verify-qa']['needs'],['dev','qa'])
   self.assertEqual(jobs['production-pr']['needs'],['dev','verify-qa'])
   for name in ['verify-dev','verify-qa','production']:
@@ -171,3 +171,69 @@ class OrchestrationOwnership(unittest.TestCase):
    with patch.object(d.subprocess,'check_output',side_effect=error),patch.object(d.time,'sleep') as sleep:
     with self.assertRaises(subprocess.CalledProcessError):d.run(*args)
     sleep.assert_not_called()
+
+class VersionedEvidence(unittest.TestCase):
+ def setUp(self):
+  import source_gate
+  self.g=source_gate;self.repo='Narx-Space-Prod/commerce-orders'
+  self.record={'run_attempt':2,'status':'in_progress'}
+  self.value={'schemaVersion':1,'gate':'tests','repository':self.repo,'commit':'b'*40,'runId':12,'runAttempt':2,'result':'success','releases':[]}
+ def archive(self,value,filename='gate.json'):
+  import io,zipfile
+  raw=io.BytesIO()
+  with zipfile.ZipFile(raw,'w') as archive:archive.writestr(filename,json.dumps(value))
+  return raw.getvalue()
+ def artifact(self):return {'name':'narx-ci-v1-tests-2','id':44,'expired':False,'size_in_bytes':1024,'workflow_run':{'id':12}}
+ def test_valid_versioned_gate_has_no_job_display_name_dependency(self):
+  pages=json.dumps([{'artifacts':[self.artifact()]}])
+  with patch.object(self.g,'run',side_effect=[pages,self.archive(self.value)]):
+   self.assertEqual(self.g.evidence('tests',self.record,self.repo,'b'*40,12),self.value)
+ def test_stale_attempt_forged_commit_and_archive_paths_are_rejected(self):
+  for change in [{'runAttempt':1},{'commit':'c'*40},{'runId':13},{'schemaVersion':True}]:
+   with patch.object(self.g,'run',side_effect=[json.dumps([{'artifacts':[self.artifact()]}]),self.archive({**self.value,**change})]):
+    with self.assertRaises(ValueError):self.g.evidence('tests',self.record,self.repo,'b'*40,12)
+  with patch.object(self.g,'run',side_effect=[json.dumps([{'artifacts':[self.artifact()]}]),self.archive(self.value,'../gate.json')]):
+   with self.assertRaises(ValueError):self.g.evidence('tests',self.record,self.repo,'b'*40,12)
+ def test_missing_expired_or_duplicate_artifacts_fail_closed(self):
+  for artifacts in [[],[{**self.artifact(),'expired':True}],[self.artifact(),self.artifact()]]:
+   with patch.object(self.g,'run',return_value=json.dumps([{'artifacts':artifacts}])):
+    with self.assertRaises(ValueError):self.g.evidence('tests',{**self.record,'status':'completed'},self.repo,'b'*40,12)
+ def test_version_one_cannot_silently_fall_back_to_job_names(self):
+  event={'client_payload':{'repository':self.repo,'commit':'b'*40,'runId':12,'evidenceVersion':1}}
+  with patch.object(self.g,'observe_versioned',side_effect=ValueError('missing evidence')),patch.object(self.g,'required') as legacy:
+   with self.assertRaises(ValueError):self.g.observe('tests',event)
+   legacy.assert_not_called()
+
+class OverlappingReleaseSafety(unittest.TestCase):
+ setUp=DeliveryStages.setUp
+ command=DeliveryStages.command
+ def test_old_promotion_candidate_cannot_replace_a_newer_environment_release(self):
+  candidate=d.bundle(self.facts,{'components':self.old,'gitopsCommit':'c'*40,'environment':'qa'})
+  # Another master has advanced QA since this PR was prepared.
+  states=copy.deepcopy(self.states);states['qa']=d.bundle(self.facts)
+  with patch.object(d,'healthy',return_value=True),patch.object(d,'verify_image') as verify:
+   with self.assertRaises(ValueError):d.verify_candidate(candidate,'qa','d'*40,states)
+   verify.assert_not_called()
+ def test_delayed_failure_event_does_not_rollback_current_healthy_release(self):
+  with patch.object(d,'run',side_effect=self.command),patch.object(d,'healthy',return_value=False),patch.object(d,'open_pr') as propose:
+   d.recover_stage('qa')
+   propose.assert_not_called()
+
+class BusinessGateSafety(unittest.TestCase):
+ def test_business_test_blocks_qa_uses_exact_images_and_cleans_only_its_project(self):
+  root=Path(__file__).resolve().parents[1]
+  jobs=yaml.safe_load((root/'.github/workflows/commerce.yml').read_text())['jobs']
+  gate=jobs['business'];steps=gate['steps'];text='\n'.join(s.get('run','') for s in steps)
+  self.assertEqual(gate['needs'],['dev','verify-dev'])
+  self.assertIn('business',jobs['qa']['needs'])
+  self.assertEqual(gate['env']['NARX_TEST_URL'],'http://127.0.0.1:18080')
+  self.assertNotIn('secrets',gate)
+  self.assertIn('--no-build',text)
+  self.assertIn("facts[component]['digest']",text)
+  self.assertIn("config['services'][service].pop('build',None)",text)
+  self.assertIn('--volumes --remove-orphans',text)
+  self.assertNotIn('docker system prune',text)
+  self.assertNotIn('kubectl',text)
+  self.assertEqual(steps[-1]['if'],'always()')
+  fixture=next(s for s in steps if s.get('with',{}).get('path')=='fixture-source')
+  self.assertEqual(fixture['with']['ref'],'${{ steps.bundle.outputs.orders-commit }}')
