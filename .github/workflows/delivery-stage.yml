@@ -2,6 +2,9 @@ name: Reusable release stage
 
 on:
   workflow_call:
+    secrets:
+      NARX_RELEASE_APP_PRIVATE_KEY:
+        required: false
     inputs:
       environment:
         required: true

@@ -85,3 +85,15 @@ class DeliveryGraph(unittest.TestCase):
   self.assertEqual(observer['permissions'],{'contents':'read','statuses':'read','pull-requests':'read'})
   self.assertIn('github.event.pull_request.merged == true',jobs['production']['if'])
   self.assertIn('github.event.pull_request.head.repo.full_name == github.repository',jobs['production']['if'])
+
+class ReleaseSecretContract(unittest.TestCase):
+ def test_only_release_stages_receive_named_secret(self):
+  import yaml
+  root=Path(__file__).resolve().parents[1]
+  for filename in ('delivery.yml','recovery.yml'):
+   workflow=yaml.safe_load((root/'.github/workflows'/filename).read_text())
+   for job in workflow['jobs'].values():
+    if job.get('uses','').endswith('/delivery-stage.yml'):
+     self.assertEqual(set(job['secrets']),{'NARX_RELEASE_APP_PRIVATE_KEY'})
+    else:
+     self.assertNotIn('secrets',job)
