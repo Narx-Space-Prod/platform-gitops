@@ -175,9 +175,29 @@ def deployment_revisions(revision, environment):
     require(environment in ENVIRONMENTS, 'unexpected deployment environment')
     # Ignore commits for other environments, but never reuse evidence across a
     # chart, runtime, release or Argo application configuration change.
-    anchor = run('git', 'log', '--first-parent', '-1', '--format=%H', revision, '--',
-                 'charts', 'environments/' + environment, 'applications/local/commerce.json')
-    require(re.fullmatch('[a-f0-9]{40}', anchor), 'deployment configuration history is missing')
+    application = 'applications/local/commerce.json'
+    paths = ('charts', 'environments/' + environment, application)
+    search = revision
+    for _ in range(50):
+        anchor = run('git', 'log', '--first-parent', '-1', '--format=%H', search, '--', *paths)
+        require(re.fullmatch('[a-f0-9]{40}', anchor), 'deployment configuration history is missing')
+        changed = run('git', 'diff-tree', '--no-commit-id', '--name-only', '-r', anchor, '--', *paths).splitlines()
+        if changed != [application]:
+            break
+        try:
+            parent = run('git', 'rev-parse', anchor + '^')
+            configs = [json.loads(run('git', 'show', commit + ':' + application)) for commit in (parent, anchor)]
+        except subprocess.CalledProcessError:
+            break  # Missing historical configuration cannot authorize older evidence.
+        for config in configs:
+            for item in config.get('items', []):
+                if item.get('kind') == 'AppProject':
+                    item.get('spec', {}).pop('description', None)
+        if configs[0] != configs[1]:
+            break
+        search = parent  # Description/format-only changes cannot alter the deployed application.
+    else:
+        raise ValueError('application metadata history exceeds verification bound')
     revisions = run('git', 'rev-list', '--first-parent', revision, '^' + anchor).splitlines() + [anchor]
     # Bound remote API calls; missing evidence fails closed rather than skipping
     # newer failures to find a historical successful deployment.
