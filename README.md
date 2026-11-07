@@ -186,3 +186,56 @@ The cache is in memory, stores only successful checks and is discarded between
 invocations. Changed sources, digests or builder policies require verification
 again. No persisted verification cache or skipped environment health evidence is
 introduced. Preserve old reviewed builders for existing releases and rollbacks.
+
+## Operator pipeline entrypoints
+
+Application repositories expose **01 - Application CI**, a single call to the
+shared `platform-ci/application.yml` wrapper. Open its graph to follow source
+policy → test/coverage/image scan → Sonar → signed publication → delivery handoff.
+Each source repository still owns its PR checks; the shared wrapper removes
+repeated orchestration rather than coupling unrelated source changes.
+
+Open **[02 - Commerce Delivery](https://github.com/Narx-Space-Prod/platform-gitops/actions/workflows/delivery.yml)**
+to follow the central release graph:
+
+```mermaid
+flowchart LR
+    CI[Application CI succeeds] --> Intake[Verify signed releases / prepare Dev]
+    Intake --> Dev[Dev rollout and smoke proof]
+    Dev --> QA[QA promotion PR]
+    QA --> QACheck[QA rollout and smoke proof]
+    QACheck --> Approval[Production PR / Code-S-12 review]
+    Approval --> Prod[Production rollout and smoke proof]
+```
+
+The Dev and QA jobs wait for the exact immutable bundle and successful smoke
+statuses from the dedicated observer App. They do not use a fixed sleep as proof,
+do not call Argo sync manually, and have no cluster credentials. Promotion jobs
+reuse the existing canonical-bundle, source-CI and signed-attestation policy.
+Source dispatches include their CI run ID; intake waits for completed successful
+CI before selecting releases. Queued intakes coalesce and read fresh state. An
+hourly fallback catches missed source events without generating five-minute
+normal-delivery runs or a new delivery run for every deployment status.
+
+The current Production PR review gate remains unchanged. The automatic graph
+ends by requesting that PR; its body links back to the central delivery graph and
+lists source CI runs. After review and merge, **the same Commerce Delivery
+workflow** opens a Production continuation run and checks the actual deployment.
+The summary distinguishes requesting approval from successful deployment. This
+avoids an idle runner while waiting for human review. A single uninterrupted
+run would require deliberately moving the approval to a protected GitHub
+Production environment; that is a separate approval-policy choice.
+
+**[03 - Recovery](https://github.com/Narx-Space-Prod/platform-gitops/actions/workflows/recovery.yml)**
+is the manual rollback entrypoint. It also responds only to trusted failed QA or
+Production deployment statuses, and rechecks the current failure before proposing
+a rollback. Dev/QA PR auto-merge and Production code-owner review still apply.
+Normal delivery and recovery share one reusable privileged release-stage setup;
+read-only deployment waits cannot mint release tokens. An observed timeout,
+failure or superseded upstream cannot authorize promotion.
+
+Platform/library PR validation and the trusted base-code release verifier remain
+supporting checks. They are distinct security responsibilities, not separate
+operator deployment entrypoints. Workflow names and the CI/PR summary links are
+the navigation starting points; individual reusable files are implementation
+building blocks.

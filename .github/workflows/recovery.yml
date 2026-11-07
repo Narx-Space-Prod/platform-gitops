@@ -1,0 +1,34 @@
+name: 03 - Recovery
+
+on:
+  status:
+  workflow_dispatch:
+    inputs:
+      environment:
+        type: choice
+        options: [dev, qa, production]
+        default: qa
+
+permissions:
+  contents: read
+
+jobs:
+  recovery:
+    name: Verify failure and propose rollback
+    if: >-
+      github.repository == 'Narx-Space-Prod/platform-gitops' &&
+      vars.DELIVERY_ENABLED == 'true' && github.ref == 'refs/heads/main' &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event.sender.login == vars.NARX_DEPLOYMENT_BOT_LOGIN &&
+        contains(fromJSON('["narx/deploy-qa","narx/deploy-production"]'), github.event.context) &&
+        github.event.state == 'failure'))
+    concurrency:
+      group: release-recovery
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      packages: read
+    uses: ./.github/workflows/delivery-stage.yml
+    with:
+      environment: ${{ inputs.environment || (github.event.context == 'narx/deploy-qa' && 'qa' || 'production') }}
+      operation: ${{ github.event_name == 'workflow_dispatch' && 'rollback' || 'recover' }}
