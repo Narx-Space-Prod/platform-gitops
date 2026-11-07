@@ -83,12 +83,25 @@ def evidence(gate,record,repo,commit,run_id):
 def observe_versioned(gate,event,timeout):
     repo,commit,run_id=identity(event)
     deadline=time.monotonic()+timeout
+    missing_completed_since=None
     while time.monotonic()<deadline:
         record=api(f'repos/{repo}/actions/runs/{run_id}')
         validate(record,repo,commit)
         if record.get('status')=='completed' and record.get('conclusion')!='success':
             raise ValueError('Application CI failed or was cancelled')
-        value=evidence(gate,record,repo,commit,run_id)
+        try:
+            value=evidence(gate,record,repo,commit,run_id)
+        except ValueError as error:
+            # GitHub may complete the run just before artifact indexing catches up.
+            # Only missing evidence gets a bounded grace period, never invalid evidence.
+            if str(error)!='Completed CI lacks versioned gate evidence':
+                raise
+            if missing_completed_since is None:
+                missing_completed_since=time.monotonic()
+            if time.monotonic()-missing_completed_since>=60:
+                raise
+            time.sleep(15)
+            continue
         if value is not None and (gate!='publication' or record.get('status')=='completed'):
             if gate=='publication':
                 with open(os.environ['GITHUB_OUTPUT'],'a') as output:
