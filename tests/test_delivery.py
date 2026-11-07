@@ -144,6 +144,9 @@ class DeliveryPolicy(unittest.TestCase):
                 subprocess.run(['git','init','--initial-branch=main'],check=True,stdout=subprocess.DEVNULL)
                 d.run('git','config','user.name','Test');d.run('git','config','user.email','test@example.invalid')
                 Path('charts').mkdir();Path('charts/chart.yaml').write_text('initial')
+                app=Path('applications/local/commerce.json');app.parent.mkdir(parents=True)
+                project={'apiVersion':'v1','kind':'List','items':[{'kind':'AppProject','spec':{'description':'old','sourceRepos':['trusted']}}]}
+                app.write_text(json.dumps(project))
                 d.run('git','add','.');d.run('git','commit','-m','initial')
                 anchor=d.run('git','rev-parse','HEAD')
                 Path('environments/production').mkdir(parents=True)
@@ -156,6 +159,14 @@ class DeliveryPolicy(unittest.TestCase):
                 d.run('git','add','.');d.run('git','commit','-m','runtime change')
                 changed=d.run('git','rev-parse','HEAD')
                 self.assertEqual(d.deployment_revisions(changed,'qa'),[changed])
+                project['items'][0]['spec']['description']='standalone description'
+                app.write_text(json.dumps(project));d.run('git','add','.');d.run('git','commit','-m','description only')
+                metadata=d.run('git','rev-parse','HEAD')
+                self.assertEqual(d.deployment_revisions(metadata,'qa'),[metadata,changed])
+                project['items'][0]['spec']['sourceRepos']=['different']
+                app.write_text(json.dumps(project));d.run('git','add','.');d.run('git','commit','-m','real policy change')
+                policy=d.run('git','rev-parse','HEAD')
+                self.assertEqual(d.deployment_revisions(policy,'qa'),[policy])
             finally:
                 os.chdir(previous)
 
