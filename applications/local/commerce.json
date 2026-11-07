@@ -10,7 +10,7 @@
         "namespace": "argocd"
       },
       "spec": {
-        "description": "Narx workloads on a dedicated local cluster; shared Argo CD control plane only",
+        "description": "Narx workloads and Argo CD on the dedicated local cluster",
         "sourceRepos": [
           "https://github.com/Narx-Space-Prod/platform-gitops.git"
         ],
