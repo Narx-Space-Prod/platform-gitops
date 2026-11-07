@@ -323,50 +323,6 @@ def released_facts():
     return result
 
 
-def reconcile(operation, environment=None):
-    run('git', 'fetch', 'origin', 'main')
-    revision = run('git', 'rev-parse', 'origin/main')
-    states = {e: json.loads(run('git', 'show', revision + f':environments/{e}/release.json')) for e in ENVIRONMENTS}
-    for value in states.values():
-        validate(value)
-    if operation == 'rollback':
-        require(environment in ENVIRONMENTS, 'select a rollback environment')
-        value = rollback(states[environment], environment)
-        for fact in value['release']['components'].values():
-            verify_image(fact)
-        open_pr(environment, value, 'rollback')
-        return
-    facts = released_facts()
-    for environment in ('qa', 'production'):
-        current = states[environment]
-        if validate(current) and current['release']['previous'] and healthy(revision, environment, 'failure'):
-            value = rollback(current, environment)
-            for fact in value['release']['components'].values():
-                verify_image(fact)
-            open_pr(environment, value, 'rollback')
-            return
-    if (set(facts) == set(COMPONENTS) and release_id(facts) != states['dev']['release']['id']
-            and (not validate(states['dev']) or healthy(revision, 'dev'))):
-        value = next_bundle(states['dev'], facts, revision, 'dev')
-        open_pr('dev', value, 'release')
-        return
-    for source, target in [('dev', 'qa'), ('qa', 'production')]:
-        if not validate(states[source]) or not healthy(revision, source):
-            continue
-        facts = states[source]['release']['components']
-        if release_id(facts) == states[target]['release']['id']:
-            continue
-        if validate(states[target]) and not healthy(revision, target):
-            print('Waiting for trusted healthy target evidence:', target)
-            continue
-        for fact in facts.values():
-            verify_image(fact)
-        value = next_bundle(states[target], facts, revision, target)
-        open_pr(target, value, 'promote')
-        return
-    print('No eligible change: waiting for signed releases, rollout evidence or a reviewed merge.')
-
-
 def verify_candidate(value, environment, revision, states):
     ready = validate(value)
     current = states[environment]
@@ -511,12 +467,14 @@ def wait_for_deployment(environment, expected, timeout=1200):
     raise ValueError('deployment evidence timed out: ' + environment)
 
 
-def recover_stage(environment):
-    require(environment in ('qa', 'production'), 'automatic recovery is limited to QA/production')
+def recover_stage(environment, manual=False):
+    require(environment in (ENVIRONMENTS if manual else ('qa', 'production')), 'automatic recovery is limited to QA/production')
     run('git', 'fetch', 'origin', 'main')
     revision = run('git', 'rev-parse', 'origin/main')
     current = json.loads(run('git', 'show', revision + f':environments/{environment}/release.json'))
-    if not validate(current) or not healthy(revision, environment, 'failure'):
+    if manual:
+        require(validate(current), 'cannot roll back an empty release')
+    if not validate(current) or (not manual and not healthy(revision, environment, 'failure')):
         print('No current trusted deployment failure; no recovery proposed.')
         return
     value = rollback(current, environment)
@@ -548,7 +506,7 @@ def observe_production():
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('operation', choices=['validate', 'fixtures', 'reconcile', 'rollback', 'verify-candidate', 'stage', 'wait', 'recover', 'observe-production'])
+    parser.add_argument('operation', choices=['validate', 'fixtures', 'rollback', 'verify-candidate', 'stage', 'wait', 'recover', 'observe-production'])
     parser.add_argument('argument', nargs='?')
     parser.add_argument('--environment', choices=ENVIRONMENTS)
     parser.add_argument('--revision')
@@ -574,8 +532,8 @@ def main():
         require(args.environment and args.revision, 'candidate environment and base revision are required')
         states = {e: read(ROOT / f'environments/{e}/release.json') for e in ENVIRONMENTS}
         verify_candidate(read(args.argument), args.environment, args.revision, states)
-    else:
-        reconcile(args.operation, args.argument)
+    elif args.operation == 'rollback':
+        recover_stage(args.argument, manual=True)
 
 
 if __name__ == '__main__':

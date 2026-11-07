@@ -277,18 +277,6 @@ class DeliveryPolicy(unittest.TestCase):
         with self.assertRaises(ValueError):
             d.enable_release_auto_merge('unknown', 'release/example')
 
-    def test_reconcile_waits_for_pending_target_without_bypassing_health(self):
-        facts=copy.deepcopy(self.facts)
-        facts['catalogue']['digest']='sha256:'+'c'*64
-        states={e:d.bundle(self.facts) for e in d.ENVIRONMENTS}
-        states['dev']=d.bundle(facts)
-        def read(path):return states[Path(path).parent.name]
-        with patch.object(d,'run',side_effect=lambda *args,**kwargs: json.dumps(states[args[2].split('environments/')[1].split('/')[0]]) if args[:2]==('git','show') else 'd'*40), patch.object(d,'read',side_effect=read), \
-             patch.object(d,'released_facts',return_value=facts), \
-             patch.object(d,'healthy',side_effect=lambda revision,env,state='success': env=='dev'), \
-             patch.object(d,'open_pr') as propose:
-            d.reconcile('reconcile')
-            propose.assert_not_called()
 
     def test_auto_merge_waits_for_exact_head_and_does_not_merge_a_different_head(self):
         def state(head, **extra):
