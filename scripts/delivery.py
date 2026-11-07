@@ -256,8 +256,16 @@ def open_pr(environment, value, reason):
     if updating:
         run('git', 'fetch', 'origin', branch)
         run('git', 'switch', '-c', branch, 'FETCH_HEAD')
-        run('git', *identity,
-            'merge', '--no-edit', 'origin/main')
+        try:
+            run('git', *identity, 'merge', '--no-edit', 'origin/main')
+        except subprocess.CalledProcessError:
+            conflicts = run('git', 'diff', '--name-only', '--diff-filter=U').splitlines()
+            # A pending generated release can conflict with a newer release on main.
+            # Resolve only its generated data; never choose a side for control code.
+            require(conflicts == [path], 'release refresh has unexpected merge conflicts: ' + ', '.join(conflicts))
+            write(ROOT / path, value)
+            run('git', 'add', path)
+            run('git', *identity, 'commit', '-m', 'Refresh generated release against current main')
     else:
         run('git', 'switch', '-c', branch, 'origin/main')
     write(ROOT / path, value)
