@@ -371,7 +371,7 @@ integration:
         list:
         - name: environment
           type: custom
-          query: dev,qa
+          query: dev,qa,production
           current:
             text: dev
             value: dev

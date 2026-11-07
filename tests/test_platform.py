@@ -333,6 +333,15 @@ class PlatformPolicy(unittest.TestCase):
             self.assertIn('.app.status.operationState.syncResult.revision',template['revisionPath'])
             self.assertNotIn('.app.status.sync.revision',template['revisionPath'])
 
+    def test_dashboard_environment_filter_covers_every_monitored_environment(self):
+        expected={name.removeprefix('commerce-') for name in self.monitoring['namespaces']}
+        for dashboard in self.monitoring['dashboards'].values():
+            variables=dashboard.get('templating',{}).get('list',[])
+            environment=next(variable for variable in variables if variable['name']=='environment')
+            self.assertEqual(set(environment['query'].split(',')),expected)
+            self.assertIn(environment['current']['value'],expected)
+            self.assertTrue(environment['includeAll'])
+
     def test_dashboard_and_alert_queries_are_project_scoped(self):
         for dashboard in self.monitoring['dashboards'].values():
             for panel in dashboard['panels']:
