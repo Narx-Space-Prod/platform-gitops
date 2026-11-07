@@ -438,6 +438,14 @@ def advance_stage(environment, expected=None):
         wait_for_source()
         facts = released_facts()
         require(set(facts) == set(COMPONENTS), 'all four signed components are required')
+        if os.environ.get('GITHUB_EVENT_NAME') == 'repository_dispatch':
+            event = read(os.environ['GITHUB_EVENT_PATH'])
+            if event.get('action') == 'ci-started':
+                source = event['client_payload']
+                expected_components = [c for c, repo in COMPONENTS.items()
+                                       if source['repository'] == 'Narx-Space-Prod/' + repo]
+                require(any(facts[c]['commit'] == source['commit'] and facts[c]['runId'] == source['runId']
+                            for c in expected_components), 'source release was superseded; follow the newer master run')
     else:
         require(isinstance(expected, str) and re.fullmatch('[a-f0-9]{64}', expected), 'expected release ID is required')
         source = 'dev' if environment == 'qa' else 'qa'
@@ -528,6 +536,7 @@ def main():
     parser.add_argument('--environment', choices=ENVIRONMENTS)
     parser.add_argument('--revision')
     parser.add_argument('--bundle')
+    parser.add_argument('--timeout', type=int, default=1200)
     args = parser.parse_args()
     if args.operation == 'fixtures':
         require(args.argument, 'provide a temporary fixture output path')
@@ -535,7 +544,8 @@ def main():
     elif args.operation == 'stage':
         advance_stage(args.argument, args.bundle)
     elif args.operation == 'wait':
-        wait_for_deployment(args.argument, args.bundle)
+        require(0 < args.timeout <= 3600, 'invalid observation timeout')
+        wait_for_deployment(args.argument, args.bundle, args.timeout)
     elif args.operation == 'recover':
         recover_stage(args.argument)
     elif args.operation == 'observe-production':
