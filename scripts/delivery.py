@@ -260,6 +260,8 @@ def open_pr(environment, value, reason):
         return
     lines = [f'{reason.capitalize()} **{environment}** to `{value["release"]["id"]}`.', '',
              'Promotes existing immutable images; no rebuild. All required CI checks apply. Dev and QA release PRs merge automatically after trusted checks; production and platform changes require code-owner review and explicit merge.', '']
+    if os.environ.get('GITHUB_REPOSITORY') == 'Narx-Space-Prod/platform-gitops' and os.environ.get('GITHUB_RUN_ID', '').isdigit():
+        lines += ['[Central delivery graph](https://github.com/Narx-Space-Prod/platform-gitops/actions/runs/' + os.environ['GITHUB_RUN_ID'] + ')', '']
     lines += [f'- {name}: `{f["image"]}@{f["digest"]}`; source `{f["repository"]}@{f["commit"]}`' for name, f in value['release']['components'].items()]
     body = ROOT / '.git/release-pr.md'; body.write_text('\n'.join(lines) + '\n')
     args = ['gh', 'pr', 'create', '--repo', 'Narx-Space-Prod/platform-gitops', '--base', 'main', '--head', branch,
@@ -375,16 +377,169 @@ def fixtures(path):
     write(path, bundle(facts))
 
 
+def stage_output(environment, value, revision, active=True):
+    release = value['release']['id']
+    branch = 'release/' + environment + '-' + release[:16]
+    prs = json.loads(run('gh', 'pr', 'list', '--repo', 'Narx-Space-Prod/platform-gitops',
+        '--state', 'all', '--head', branch, '--json', 'number,url,state'))
+    pr = next((p for state in ('OPEN', 'MERGED') for p in prs if p['state'] == state), None)
+    output = {'release-id': release, 'environment': environment, 'revision': revision,
+              'active': str(active).lower(), 'pr-number': str(pr['number']) if pr else '',
+              'pr-url': pr['url'] if pr else ''}
+    if os.environ.get('GITHUB_OUTPUT'):
+        with open(os.environ['GITHUB_OUTPUT'], 'a') as target:
+            target.write(''.join(f'{key}={value}\n' for key, value in output.items()))
+    if os.environ.get('GITHUB_STEP_SUMMARY'):
+        with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as target:
+            target.write(f'### {environment}: `{release[:16]}`\n\n')
+            if pr:
+                target.write(f"[Release PR #{pr['number']}]({pr['url']}) · {pr['state']}\n\n")
+            target.write('| Component | Source CI | Commit |\n| --- | --- | --- |\n')
+            for name, fact in value['release']['components'].items():
+                target.write(f"| {name} | [CI run {fact['runId']}](https://github.com/{fact['repository']}/actions/runs/{fact['runId']}) | `{fact['commit'][:12]}` |\n")
+    return output
+
+
+def wait_for_source(timeout=120):
+    """Dispatch happens at CI's last step; do not race its completed-run evidence."""
+    if os.environ.get('GITHUB_EVENT_NAME') != 'repository_dispatch':
+        return
+    event = read(os.environ['GITHUB_EVENT_PATH'])
+    source = event.get('client_payload', {})
+    if not source:  # Earlier reviewed notification workflows remain compatible.
+        return
+    repository, revision, run_id = (source.get(k) for k in ('repository', 'commit', 'runId'))
+    require(repository in {'Narx-Space-Prod/' + r for r in COMPONENTS.values()}, 'unexpected source repository')
+    require(isinstance(revision, str) and re.fullmatch('[a-f0-9]{40}', revision), 'invalid source revision')
+    require(type(run_id) is int and run_id > 0, 'invalid source run')
+    deadline = time.monotonic() + timeout
+    while True:
+        data = api(f'repos/{repository}/actions/runs/{run_id}')
+        require(data.get('head_sha') == revision and data.get('event') == 'push'
+                and data.get('head_branch') == 'main' and data.get('path') == '.github/workflows/ci.yml'
+                and data.get('head_repository', {}).get('full_name') == repository, 'source run is not protected-main CI')
+        if data.get('status') == 'completed':
+            require(data.get('conclusion') == 'success', 'source CI did not complete successfully')
+            return
+        require(time.monotonic() < deadline, 'source CI did not finish before the intake deadline')
+        time.sleep(10)
+
+
+def advance_stage(environment, expected=None):
+    """Advance exactly one graph stage using the existing immutable-release policy."""
+    require(environment in ENVIRONMENTS, 'unexpected delivery stage')
+    run('git', 'fetch', 'origin', 'main')
+    revision = run('git', 'rev-parse', 'origin/main')
+    run('git', 'switch', '--detach', revision)
+    states = {e: read(ROOT / f'environments/{e}/release.json') for e in ENVIRONMENTS}
+    for value in states.values():
+        validate(value)
+    if environment == 'dev':
+        wait_for_source()
+        facts = released_facts()
+        require(set(facts) == set(COMPONENTS), 'all four signed components are required')
+    else:
+        require(isinstance(expected, str) and re.fullmatch('[a-f0-9]{64}', expected), 'expected release ID is required')
+        source = 'dev' if environment == 'qa' else 'qa'
+        require(validate(states[source]) and states[source]['release']['id'] == expected, 'upstream release was superseded')
+        require(healthy(revision, source), 'upstream environment lacks trusted deployment success')
+        facts = states[source]['release']['components']
+        for fact in facts.values():
+            require(successful_run(fact), 'source CI is no longer successful')
+            verify_image(fact)
+    current = states[environment]
+    wanted = release_id(facts)
+    if current['release']['id'] != wanted:
+        value = next_bundle(current, facts, revision, environment)
+        open_pr(environment, value, 'release' if environment == 'dev' else 'promote')
+        records = json.loads(run('gh', 'pr', 'list', '--repo', 'Narx-Space-Prod/platform-gitops',
+            '--state', 'all', '--head', 'release/' + environment + '-' + wanted[:16], '--json', 'state'))
+        require(any(p['state'] in ('OPEN', 'MERGED') for p in records), 'release PR was declined or was not created')
+    else:
+        value = current
+    active = environment != 'dev' or any(
+        states[e]['release']['id'] != wanted or not healthy(revision, e) for e in ENVIRONMENTS)
+    return stage_output(environment, value, revision, active)
+
+
+def wait_for_deployment(environment, expected, timeout=1200):
+    require(environment in ENVIRONMENTS, 'unexpected deployment environment')
+    require(isinstance(expected, str) and re.fullmatch('[a-f0-9]{64}', expected), 'invalid expected release ID')
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            run('git', 'fetch', 'origin', 'main')
+            revision = run('git', 'rev-parse', 'origin/main')
+            value = json.loads(run('git', 'show', revision + f':environments/{environment}/release.json'))
+            validate(value)
+            if value['release']['id'] == expected:
+                require(not healthy(revision, environment, 'failure'), 'trusted deployment failure reported for ' + environment)
+                if healthy(revision, environment):
+                    print('Verified deployment and PostSync smoke:', environment, expected[:16])
+                    return stage_output(environment, value, revision)
+            print('Waiting for merged release and trusted smoke evidence:', environment, expected[:16])
+        except subprocess.CalledProcessError:
+            # Transport failures never count as success; retry only within this deadline.
+            print('Deployment evidence temporarily unavailable; retrying.')
+        time.sleep(20)
+    raise ValueError('deployment evidence timed out: ' + environment)
+
+
+def recover_stage(environment):
+    require(environment in ('qa', 'production'), 'automatic recovery is limited to QA/production')
+    run('git', 'fetch', 'origin', 'main')
+    revision = run('git', 'rev-parse', 'origin/main')
+    run('git', 'switch', '--detach', revision)
+    current = read(ROOT / f'environments/{environment}/release.json')
+    if not validate(current) or not healthy(revision, environment, 'failure'):
+        print('No current trusted deployment failure; no recovery proposed.')
+        return
+    value = rollback(current, environment)
+    for fact in value['release']['components'].values():
+        verify_image(fact)
+    open_pr(environment, value, 'rollback')
+    stage_output(environment, value, revision)
+
+
+def observe_production():
+    event = read(os.environ['GITHUB_EVENT_PATH'])
+    pr = event.get('pull_request', {})
+    require(pr.get('merged') is True and pr.get('base', {}).get('ref') == 'main'
+            and pr.get('head', {}).get('repo', {}).get('full_name') == 'Narx-Space-Prod/platform-gitops', 'not an internal merged main PR')
+    number, revision = pr.get('number'), pr.get('merge_commit_sha')
+    require(type(number) is int and isinstance(revision, str) and re.fullmatch('[a-f0-9]{40}', revision), 'invalid merged release PR')
+    pages = json.loads(run('gh', 'api', '--paginate', '--slurp',
+        f'repos/Narx-Space-Prod/platform-gitops/pulls/{number}/files?per_page=100'))
+    files = [f for page in pages for f in page]
+    # Other owned chart/platform changes can affect Production, but are not a
+    # release continuation and must not masquerade as this release's deployment.
+    require(len(files) == 1 and files[0]['filename'] == 'environments/production/release.json'
+            and files[0]['status'] == 'modified' and not files[0].get('previous_filename'), 'not a Production release-only PR')
+    run('git', 'fetch', 'origin', 'main')
+    value = json.loads(run('git', 'show', revision + ':environments/production/release.json'))
+    require(validate(value), 'Production release is not deployable')
+    wait_for_deployment('production', value['release']['id'])
+
+
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('operation', choices=['validate', 'fixtures', 'reconcile', 'rollback', 'verify-candidate'])
+    parser.add_argument('operation', choices=['validate', 'fixtures', 'reconcile', 'rollback', 'verify-candidate', 'stage', 'wait', 'recover', 'observe-production'])
     parser.add_argument('argument', nargs='?')
     parser.add_argument('--environment', choices=ENVIRONMENTS)
     parser.add_argument('--revision')
+    parser.add_argument('--bundle')
     args = parser.parse_args()
     if args.operation == 'fixtures':
         require(args.argument, 'provide a temporary fixture output path')
         fixtures(args.argument)
+    elif args.operation == 'stage':
+        advance_stage(args.argument, args.bundle)
+    elif args.operation == 'wait':
+        wait_for_deployment(args.argument, args.bundle)
+    elif args.operation == 'recover':
+        recover_stage(args.argument)
+    elif args.operation == 'observe-production':
+        observe_production()
     elif args.operation == 'validate':
         for environment in ENVIRONMENTS:
             validate(read(ROOT / f'environments/{environment}/release.json'))
