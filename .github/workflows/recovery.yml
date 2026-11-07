@@ -29,6 +29,8 @@ jobs:
       contents: read
       packages: read
     uses: ./.github/workflows/delivery-stage.yml
+    secrets:
+      NARX_RELEASE_APP_PRIVATE_KEY: ${{ secrets.NARX_RELEASE_APP_PRIVATE_KEY }}
     with:
       environment: ${{ inputs.environment || (github.event.context == 'narx/deploy-qa' && 'qa' || 'production') }}
       operation: ${{ github.event_name == 'workflow_dispatch' && 'rollback' || 'recover' }}
