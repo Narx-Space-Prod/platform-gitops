@@ -123,9 +123,12 @@ class MasterSourceGates(unittest.TestCase):
    jobs[0]['conclusion']='failure'
    with patch.object(self.g.subprocess,'check_output',return_value=json.dumps([{'jobs':jobs}])):
     with self.assertRaisesRegex(ValueError,'failed'):self.g.observe('tests',self.event)
- def test_publication_requires_entire_source_ci_success_and_a_published_image(self):
+ def test_publication_requires_complete_ci_and_skips_delivery_without_new_images(self):
   with patch.object(self.g,'api',return_value={**self.record,'status':'completed','conclusion':'success'}),patch.object(self.g.subprocess,'check_output',return_value='[{"jobs":[]}]'):
-   with self.assertRaisesRegex(ValueError,'No image'):self.g.observe('publication',self.event)
+   from tempfile import NamedTemporaryFile
+   with NamedTemporaryFile() as output, NamedTemporaryFile() as summary, patch.dict(os.environ,{'GITHUB_OUTPUT':output.name,'GITHUB_STEP_SUMMARY':summary.name}):
+    self.assertFalse(self.g.observe('publication',self.event))
+    self.assertIn('deploy=false',Path(output.name).read_text())
   with patch.object(self.g,'api',return_value={**self.record,'status':'completed','conclusion':'cancelled'}),patch.object(self.g.subprocess,'check_output',return_value='[{"jobs":[]}]'):
    with self.assertRaisesRegex(ValueError,'cancelled'):self.g.observe('publication',self.event)
  def test_master_has_ci_through_production_in_one_dependency_chain(self):

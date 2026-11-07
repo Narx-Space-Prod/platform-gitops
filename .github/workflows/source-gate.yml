@@ -1,6 +1,9 @@
 name: Read-only source CI gate
 on:
   workflow_call:
+    outputs:
+      deploy:
+        value: ${{ jobs.evidence.outputs.deploy }}
     inputs:
       gate:
         required: true
@@ -11,6 +14,8 @@ jobs:
   evidence:
     name: Verify source CI evidence
     runs-on: ubuntu-24.04
+    outputs:
+      deploy: ${{ steps.gate.outputs.deploy }}
     timeout-minutes: 35
     permissions:
       contents: read
@@ -19,6 +24,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Observe actual source jobs without rebuilding
+        id: gate
         env:
           GH_TOKEN: ${{ github.token }}
           GATE: ${{ inputs.gate }}

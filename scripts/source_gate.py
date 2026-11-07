@@ -54,8 +54,14 @@ def observe(gate,event,timeout=1800):
         if gate=='publication':
             ready=record.get('status')=='completed' and record.get('conclusion')=='success'
             # A workflow-only/no-image run cannot claim publication.
-            if ready and not any(j['name'].startswith(PREFIX+'04 - ') and j.get('conclusion')=='success' for j in by_name.values()):
-                raise ValueError('No image was published; this run needs no deployment')
+            if ready:
+                published=any(j['name'].startswith(PREFIX+'04 - ') and j.get('conclusion')=='success' for j in by_name.values())
+                with open(os.environ['GITHUB_OUTPUT'],'a') as output:
+                    output.write('deploy='+str(published).lower()+'\n')
+                if not published:
+                    with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as output:
+                        output.write('No runtime image changed: CI passed; deployment stages are intentionally skipped.\n')
+                    return False
         if ready:
             with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as output:
                 output.write(f'### Verified {gate}\n\n[Source CI run {run_id}](https://github.com/{repo}/actions/runs/{run_id}) · `{commit}`\n\n')
