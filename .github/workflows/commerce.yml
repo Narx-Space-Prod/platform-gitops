@@ -1,0 +1,141 @@
+name: Commerce CI/CD
+run-name: >-
+  Commerce | ${{ github.event.client_payload.repository }} | ${{ github.event.client_payload.commit }}
+on:
+  repository_dispatch:
+    types: [ci-started]
+permissions:
+  contents: read
+# Serialize releases through approval. GitHub keeps only the latest pending intake;
+# immutable release discovery safely coalesces older pending releases.
+concurrency:
+  group: release-operations
+  cancel-in-progress: false
+jobs:
+  tests:
+    name: 01 - Unit integration and security gates
+    if: github.repository == 'Narx-Space-Prod/platform-gitops' && vars.DELIVERY_ENABLED == 'true' && github.ref == 'refs/heads/main'
+    uses: ./.github/workflows/source-gate.yml
+    with:
+      gate: tests
+  quality:
+    name: 02 - Sonar quality gate
+    needs: tests
+    uses: ./.github/workflows/source-gate.yml
+    with:
+      gate: quality
+  publication:
+    name: 03 - Signed publication and complete source CI
+    needs: quality
+    uses: ./.github/workflows/source-gate.yml
+    with:
+      gate: publication
+  dev:
+    needs: publication
+    name: 04 - Prepare immutable Dev release
+    if: github.repository == 'Narx-Space-Prod/platform-gitops' && vars.DELIVERY_ENABLED == 'true' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    permissions:
+      contents: read
+      packages: read
+    uses: ./.github/workflows/delivery-stage.yml
+    secrets:
+      NARX_RELEASE_APP_PRIVATE_KEY: ${{ secrets.NARX_RELEASE_APP_PRIVATE_KEY }}
+    with:
+      environment: dev
+  verify-dev:
+    name: 05 - Dev rollout and smoke gate
+    needs: dev
+    if: needs.dev.outputs.active == 'true'
+    permissions:
+      contents: read
+      statuses: read
+      pull-requests: read
+    uses: ./.github/workflows/delivery-observe.yml
+    with:
+      environment: dev
+      release-id: ${{ needs.dev.outputs.release-id }}
+  qa:
+    name: 06 - Promote verified bundle to QA
+    needs: [dev, verify-dev]
+    if: needs.dev.outputs.active == 'true'
+    permissions:
+      contents: read
+      packages: read
+    uses: ./.github/workflows/delivery-stage.yml
+    secrets:
+      NARX_RELEASE_APP_PRIVATE_KEY: ${{ secrets.NARX_RELEASE_APP_PRIVATE_KEY }}
+    with:
+      environment: qa
+      release-id: ${{ needs.dev.outputs.release-id }}
+  verify-qa:
+    name: 07 - QA rollout and smoke gate
+    needs: [dev, qa]
+    if: needs.dev.outputs.active == 'true'
+    permissions:
+      contents: read
+      statuses: read
+      pull-requests: read
+    uses: ./.github/workflows/delivery-observe.yml
+    with:
+      environment: qa
+      release-id: ${{ needs.dev.outputs.release-id }}
+  production-pr:
+    name: 08 - Request Production approval
+    needs: [dev, verify-qa]
+    if: needs.dev.outputs.active == 'true'
+    permissions:
+      contents: read
+      packages: read
+    uses: ./.github/workflows/delivery-stage.yml
+    secrets:
+      NARX_RELEASE_APP_PRIVATE_KEY: ${{ secrets.NARX_RELEASE_APP_PRIVATE_KEY }}
+    with:
+      environment: production
+      release-id: ${{ needs.dev.outputs.release-id }}
+  production:
+    name: 09 - Production approval rollout and smoke
+    needs: [dev, production-pr]
+    if: needs.dev.outputs.active == 'true'
+    permissions:
+      contents: read
+      statuses: read
+      pull-requests: read
+    uses: ./.github/workflows/delivery-observe.yml
+    with:
+      environment: production
+      release-id: ${{ needs.dev.outputs.release-id }}
+      timeout-seconds: 3600
+  summary:
+    name: Delivery overview and next action
+    needs: [tests, quality, publication, dev, verify-dev, qa, verify-qa, production-pr, production]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Publish the single entrypoint overview
+        env:
+          STAGES: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          stages=json.loads(os.environ['STAGES'])
+          dev=stages['dev'].get('outputs',{})
+          production=stages['production-pr'].get('outputs',{})
+          labels={'tests':'Source tests and security','quality':'Sonar quality','publication':'Signed publication and completed CI','dev':'Prepare immutable Dev release','verify-dev':'Dev deployment + smoke',
+                  'qa':'Promote QA','verify-qa':'QA deployment + smoke',
+                  'production-pr':'Request Production PR approval','production':'Observe approved Production deployment'}
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as output:
+              output.write('## Commerce CI/CD\n\n')
+              if dev.get('release-id'):
+                  output.write('Release: `'+dev['release-id']+'`\n\n')
+              output.write('| Stage | Job result |\n| --- | --- |\n')
+              for key,label in labels.items():
+                  output.write(f"| {label} | {stages[key]['result']} |\n")
+              if production.get('pr-url'):
+                  output.write('\n[Production approval PR]('+production['pr-url']+'). This run waits for the approved merge and trusted Production smoke evidence. Approval must arrive within the one-hour observation window; otherwise the run fails and recovery/observation remains available.\n')
+              if dev.get('active')=='false':
+                  output.write('\nNo new promotion is needed: the current bundle already has trusted healthy evidence in all environments.\n')
+              output.write('\n[All Commerce CI/CD runs](https://github.com/Narx-Space-Prod/platform-gitops/actions/workflows/commerce.yml) · [Recovery](https://github.com/Narx-Space-Prod/platform-gitops/actions/workflows/recovery.yml)\n')
+          PY

@@ -239,3 +239,15 @@ supporting checks. They are distinct security responsibilities, not separate
 operator deployment entrypoints. Workflow names and the CI/PR summary links are
 the navigation starting points; individual reusable files are implementation
 building blocks.
+
+## Main pipeline: Commerce CI/CD
+
+Open **Actions → Commerce CI/CD** in this repository. This is the operator entry point from application CI through Production. Each main-branch application change starts a run titled with its repository and commit.
+
+The graph verifies the actual source unit/integration/security jobs, waits for Sonar, confirms signed publication and complete source CI, then prepares and verifies Dev, QA and Production. Source CI runs remain execution details linked from the master gate summaries; this is cross-repository orchestration, not duplicated tests or a second image build. PR checks remain in the service repository before merge.
+
+Production still requires an independently reviewed GitOps release PR. The same master run observes its merge and trusted rollout/smoke evidence for up to one hour. A timeout is a failed observation, never permission to merge or a deployment success. Recovery and the existing Production merge observer remain available afterward. Read-only observer jobs receive no App secrets or Kubernetes credentials.
+
+Releases are serialized using the existing `release-operations` concurrency group. GitHub retains the latest pending request; intake verifies that its source release has not been superseded. The graph fails visibly if its source release is no longer selected. A master can include other components' latest verified releases; the immutable bundle is identical across Dev, QA and Production.
+
+Activation order: merge the master first, merge the shared CI intake next, then pin service callers to the final reviewed shared revision. Older callers continue to use Commerce Delivery until migrated. Do not call the new view active before the callers are migrated and the end-to-end run is verified.
