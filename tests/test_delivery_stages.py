@@ -97,3 +97,47 @@ class ReleaseSecretContract(unittest.TestCase):
      self.assertEqual(set(job['secrets']),{'NARX_RELEASE_APP_PRIVATE_KEY'})
     else:
      self.assertNotIn('secrets',job)
+
+class MasterSourceGates(unittest.TestCase):
+ def setUp(self):
+  import source_gate
+  self.g=source_gate
+  self.repo='Narx-Space-Prod/commerce-orders'
+  self.event={'client_payload':{'repository':self.repo,'commit':'b'*40,'runId':12}}
+  self.record={'head_sha':'b'*40,'event':'push','head_branch':'main','path':'.github/workflows/ci.yml','head_repository':{'full_name':self.repo}}
+ def test_payload_cannot_select_forks_or_inject_commands(self):
+  for changes in [{'repository':'attacker/fork'},{'commit':'$(bad)'},{'runId':True}]:
+   with self.assertRaises(ValueError):self.g.identity({'client_payload':{**self.event['client_payload'],**changes}})
+  for changes in [{'head_sha':'c'*40},{'event':'pull_request'},{'path':'.github/workflows/other.yml'}]:
+   with self.assertRaises(ValueError):self.g.validate({**self.record,**changes},self.repo,'b'*40)
+ def test_tests_wait_for_cart_and_reject_failed_gates(self):
+  names=self.g.required('tests',self.repo)
+  self.assertEqual(len(names),3)
+  jobs=[{'name':n,'status':'completed','conclusion':'success','html_url':'https://example.test/job'} for n in names]
+  from tempfile import NamedTemporaryFile
+  with NamedTemporaryFile() as report,patch.dict(os.environ,{'GITHUB_STEP_SUMMARY':report.name}),patch.object(self.g,'api',return_value=self.record),patch.object(self.g.time,'sleep') as sleep:
+   missing=json.dumps([{'jobs':jobs[:2]}]);complete=json.dumps([{'jobs':jobs}])
+   with patch.object(self.g.subprocess,'check_output',side_effect=[missing,complete]):
+    self.g.observe('tests',self.event)
+    sleep.assert_called_once()
+   jobs[0]['conclusion']='failure'
+   with patch.object(self.g.subprocess,'check_output',return_value=json.dumps([{'jobs':jobs}])):
+    with self.assertRaisesRegex(ValueError,'failed'):self.g.observe('tests',self.event)
+ def test_publication_requires_complete_ci_and_skips_delivery_without_new_images(self):
+  with patch.object(self.g,'api',return_value={**self.record,'status':'completed','conclusion':'success'}),patch.object(self.g.subprocess,'check_output',return_value='[{"jobs":[]}]'):
+   from tempfile import NamedTemporaryFile
+   with NamedTemporaryFile() as output, NamedTemporaryFile() as summary, patch.dict(os.environ,{'GITHUB_OUTPUT':output.name,'GITHUB_STEP_SUMMARY':summary.name}):
+    self.assertFalse(self.g.observe('publication',self.event))
+    self.assertIn('deploy=false',Path(output.name).read_text())
+  with patch.object(self.g,'api',return_value={**self.record,'status':'completed','conclusion':'cancelled'}),patch.object(self.g.subprocess,'check_output',return_value='[{"jobs":[]}]'):
+   with self.assertRaisesRegex(ValueError,'cancelled'):self.g.observe('publication',self.event)
+ def test_master_has_ci_through_production_in_one_dependency_chain(self):
+  root=Path(__file__).resolve().parents[1]
+  jobs=yaml.safe_load((root/'.github/workflows/commerce.yml').read_text())['jobs']
+  self.assertEqual(jobs['quality']['needs'],'tests')
+  self.assertEqual(jobs['publication']['needs'],'quality')
+  self.assertEqual(jobs['dev']['needs'],'publication')
+  self.assertEqual(jobs['production']['needs'],['dev','production-pr'])
+  self.assertEqual(jobs['production']['with']['release-id'],"${{ needs.dev.outputs.release-id }}")
+  self.assertEqual(jobs['production']['with']['timeout-seconds'],3600)
+  self.assertNotIn('secrets',jobs['production'])
