@@ -25,11 +25,12 @@ PREDICATE = 'https://narx.space/attestations/release/v1'
 _VERIFIED_IMAGES = set()
 
 
-def run(*args, input=None):
+def run(*args, input=None, binary=False):
     read_api = args[:2] == ('gh', 'api') and '--method' not in args and input is None and '--input' not in args
     for attempt in range(4):
         try:
-            return subprocess.check_output(args, input=input, text=True, timeout=180, stderr=subprocess.STDOUT if read_api else None).strip()
+            output = subprocess.check_output(args, input=input, text=not binary, timeout=180, stderr=subprocess.STDOUT if read_api else None)
+            return output if binary else output.strip()
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
             # Retry only read-only API operations. Failed writes/signatures never retry here.
             message = str(getattr(error, 'output', '') or '').lower()
@@ -440,7 +441,7 @@ def advance_stage(environment, expected=None):
     require(environment in ENVIRONMENTS, 'unexpected delivery stage')
     run('git', 'fetch', 'origin', 'main')
     revision = run('git', 'rev-parse', 'origin/main')
-    states = {e: read(ROOT / f'environments/{e}/release.json') for e in ENVIRONMENTS}
+    states = {e: json.loads(run('git', 'show', revision + f':environments/{e}/release.json')) for e in ENVIRONMENTS}
     for value in states.values():
         validate(value)
     if environment == 'dev':

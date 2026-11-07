@@ -50,9 +50,84 @@ jobs:
     with:
       environment: dev
       release-id: ${{ needs.dev.outputs.release-id }}
+  business:
+    name: Business E2E - checkout payment refund and queue recovery
+    needs: [dev, verify-dev]
+    if: needs.dev.outputs.active == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    permissions:
+      contents: read
+      packages: read
+    env:
+      NARX_LOCAL_TEST: '1'
+      NARX_QUEUE_TEST: '1'
+      NARX_TEST_URL: http://127.0.0.1:18080
+      NARX_COMPOSE_PROJECT: narx-ci-${{ github.run_id }}-${{ github.run_attempt }}-validation
+      EXPECTED_BUNDLE: ${{ needs.dev.outputs.release-id }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Select the exact Dev-verified images without rebuilding
+        id: bundle
+        run: |
+          python3 - <<'PYTHON'
+          import json,os,secrets,subprocess,sys
+          from pathlib import Path
+          sys.path.insert(0,'scripts'); import delivery
+          subprocess.run(['git','fetch','origin','main'],check=True)
+          value=json.loads(subprocess.check_output(['git','show','origin/main:environments/dev/release.json'],text=True))
+          assert delivery.validate(value) and value['release']['id']==os.environ['EXPECTED_BUNDLE'], 'Dev release was superseded'
+          Path(os.environ['RUNNER_TEMP'],'business-bundle.json').write_text(json.dumps(value))
+          with open(os.environ['GITHUB_OUTPUT'],'a') as out:
+              out.write('orders-commit='+value['release']['components']['orders']['commit']+'\n')
+          os.umask(0o077)
+          Path('local/.env').write_text(''.join(k+'='+secrets.token_hex(32)+'\n' for k in
+              ('DATABASE_PASSWORD','SESSION_SECRET','FIXTURE_PAYMENT_SECRET','FIXTURE_WEBHOOK_SECRET'))+
+              'APP_BIND_ADDRESS=127.0.0.1\nAPP_PORT=18080\nPUBLIC_ORIGIN=http://127.0.0.1:18080\nDELIVERY_VISIBILITY_SECONDS=5\n')
+          PYTHON
+      - name: Checkout the matching sandbox payment fixture only
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: Narx-Space-Prod/commerce-orders
+          ref: ${{ steps.bundle.outputs.orders-commit }}
+          path: fixture-source
+          sparse-checkout: tests/fixtures
+          persist-credentials: false
+      - name: Authenticate private image reads
+        env:
+          REGISTRY_TOKEN: ${{ github.token }}
+        run: printf '%s' "$REGISTRY_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+      - name: Start isolated exact-image sandbox and test business failures
+        run: |
+          set -euo pipefail
+          docker compose --env-file local/.env -f local/compose.yaml config --format json > "$RUNNER_TEMP/business-compose.json"
+          python3 - <<'PYTHON'
+          import json,os
+          from pathlib import Path
+          config=json.loads(Path(os.environ['RUNNER_TEMP'],'business-compose.json').read_text())
+          facts=json.loads(Path(os.environ['RUNNER_TEMP'],'business-bundle.json').read_text())['release']['components']
+          for service,component in {'frontend':'frontend','catalogue':'catalogue','cart':'cart','orders':'orders','outbox-publisher':'orders','receipt-worker':'orders'}.items():
+              config['services'][service].pop('build',None)
+              config['services'][service]['image']=facts[component]['image']+'@'+facts[component]['digest']
+          config['services']['razorpay-fixture']['volumes'][0]['source']=str(Path('fixture-source/tests/fixtures/razorpay.py').resolve())
+          Path(os.environ['RUNNER_TEMP'],'business-compose.json').write_text(json.dumps(config))
+          PYTHON
+          docker compose --project-name "$NARX_COMPOSE_PROJECT" -f "$RUNNER_TEMP/business-compose.json" up --no-build --wait --wait-timeout 600
+          python3 -m unittest discover -s tests -p test_local_stack.py -v
+      - name: Remove only this sandbox and its ephemeral volumes
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/business-compose.json" ]; then
+            docker compose --project-name "$NARX_COMPOSE_PROJECT" -f "$RUNNER_TEMP/business-compose.json" down --volumes --remove-orphans
+          fi
+          docker logout ghcr.io
+          rm -f local/.env
   qa:
     name: 06 - Promote verified bundle to QA
-    needs: [dev, verify-dev]
+    needs: [dev, verify-dev, business]
     if: needs.dev.outputs.active == 'true'
     permissions:
       contents: read
@@ -103,7 +178,7 @@ jobs:
       timeout-seconds: 3600
   summary:
     name: Delivery overview and next action
-    needs: [tests, quality, publication, dev, verify-dev, qa, verify-qa, production-pr, production]
+    needs: [tests, quality, publication, dev, verify-dev, business, qa, verify-qa, production-pr, production]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -120,7 +195,7 @@ jobs:
           dev=stages['dev'].get('outputs',{})
           production=stages['production-pr'].get('outputs',{})
           labels={'tests':'Source tests and security','quality':'Sonar quality','publication':'Signed publication and completed CI','dev':'Prepare immutable Dev release','verify-dev':'Dev deployment + smoke',
-                  'qa':'Promote QA','verify-qa':'QA deployment + smoke',
+                  'business':'Isolated checkout payment refund and queue E2E','qa':'Promote QA','verify-qa':'QA deployment + smoke',
                   'production-pr':'Request Production PR approval','production':'Observe approved Production deployment'}
           with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as output:
               output.write('## Commerce CI/CD\n\n')
