@@ -6,7 +6,7 @@
       "repository": "ghcr.io/narx-space-prod/commerce-cart"
     },
     "podAnnotations": {
-      "delivery.narx.space/release": "2aab2a30dc7a90c2536114c4b83e3f245bdf8b4437648698f49b27194ca18cee",
+      "delivery.narx.space/release": "bbab63b441dc7c437d7f5771ffe9c336d2aae0c087974f490aa2e2b6348d5d3c",
       "delivery.narx.space/source-commit": "b42a29ec503e63e096c641013cde287753262451"
     }
   },
@@ -17,19 +17,19 @@
       "repository": "ghcr.io/narx-space-prod/commerce-catalogue"
     },
     "podAnnotations": {
-      "delivery.narx.space/release": "2aab2a30dc7a90c2536114c4b83e3f245bdf8b4437648698f49b27194ca18cee",
+      "delivery.narx.space/release": "bbab63b441dc7c437d7f5771ffe9c336d2aae0c087974f490aa2e2b6348d5d3c",
       "delivery.narx.space/source-commit": "539e14471cb3896e192f52fa5b7218c1b32c11f4"
     }
   },
   "frontend": {
     "enabled": true,
     "image": {
-      "digest": "sha256:5f9eef1d8a7cad3ce57843454f6acc3011f44aafb310f8a9a40f29ea2f97ad05",
+      "digest": "sha256:e1cbf50ecbf62a4cebc110da09d158316e9842f7d87e8a4bbfbd0940988c7805",
       "repository": "ghcr.io/narx-space-prod/commerce-frontend"
     },
     "podAnnotations": {
-      "delivery.narx.space/release": "2aab2a30dc7a90c2536114c4b83e3f245bdf8b4437648698f49b27194ca18cee",
-      "delivery.narx.space/source-commit": "19e7f8747abec34e0aef80b9acaf58b831fedf9c"
+      "delivery.narx.space/release": "bbab63b441dc7c437d7f5771ffe9c336d2aae0c087974f490aa2e2b6348d5d3c",
+      "delivery.narx.space/source-commit": "d7ad61b0b642f946ffa62a6e9d47d0225b8f9e56"
     }
   },
   "orders": {
@@ -39,7 +39,7 @@
       "repository": "ghcr.io/narx-space-prod/commerce-orders"
     },
     "podAnnotations": {
-      "delivery.narx.space/release": "2aab2a30dc7a90c2536114c4b83e3f245bdf8b4437648698f49b27194ca18cee",
+      "delivery.narx.space/release": "bbab63b441dc7c437d7f5771ffe9c336d2aae0c087974f490aa2e2b6348d5d3c",
       "delivery.narx.space/source-commit": "b42a29ec503e63e096c641013cde287753262451"
     }
   },
@@ -50,7 +50,7 @@
       "repository": "ghcr.io/narx-space-prod/commerce-orders"
     },
     "podAnnotations": {
-      "delivery.narx.space/release": "2aab2a30dc7a90c2536114c4b83e3f245bdf8b4437648698f49b27194ca18cee",
+      "delivery.narx.space/release": "bbab63b441dc7c437d7f5771ffe9c336d2aae0c087974f490aa2e2b6348d5d3c",
       "delivery.narx.space/source-commit": "b42a29ec503e63e096c641013cde287753262451"
     }
   },
@@ -73,12 +73,12 @@
         "runId": 42345354984
       },
       "frontend": {
-        "commit": "19e7f8747abec34e0aef80b9acaf58b831fedf9c",
+        "commit": "d7ad61b0b642f946ffa62a6e9d47d0225b8f9e56",
         "component": "frontend",
-        "digest": "sha256:5f9eef1d8a7cad3ce57843454f6acc3011f44aafb310f8a9a40f29ea2f97ad05",
+        "digest": "sha256:e1cbf50ecbf62a4cebc110da09d158316e9842f7d87e8a4bbfbd0940988c7805",
         "image": "ghcr.io/narx-space-prod/commerce-frontend",
         "repository": "Narx-Space-Prod/commerce-frontend",
-        "runId": 42345326681
+        "runId": 42454970995
       },
       "orders": {
         "commit": "b42a29ec503e63e096c641013cde287753262451",
@@ -89,44 +89,44 @@
         "runId": 42345437549
       }
     },
-    "id": "2aab2a30dc7a90c2536114c4b83e3f245bdf8b4437648698f49b27194ca18cee",
+    "id": "bbab63b441dc7c437d7f5771ffe9c336d2aae0c087974f490aa2e2b6348d5d3c",
     "previous": {
       "components": {
         "cart": {
-          "commit": "c9bc372d6990aed64b28b1605898d6e7cb31e888",
+          "commit": "b42a29ec503e63e096c641013cde287753262451",
           "component": "cart",
-          "digest": "sha256:5b1c0b2cff9d910f46016830059509ed14eadb9b010009c93dcf0a1b92a0dc43",
+          "digest": "sha256:8b91b98956155195261a3755e3e3ed2bd04e353241900915770683c12a6b0968",
           "image": "ghcr.io/narx-space-prod/commerce-cart",
           "repository": "Narx-Space-Prod/commerce-orders",
-          "runId": 42336379939
+          "runId": 42345437549
         },
         "catalogue": {
-          "commit": "10e7398479aa461e686c76cf5980ee4a7a1e8ba6",
+          "commit": "539e14471cb3896e192f52fa5b7218c1b32c11f4",
           "component": "catalogue",
-          "digest": "sha256:e0538675288c5f0310085d1b98002f51cb121f8d662744f3564c9480c3102170",
+          "digest": "sha256:97ceb55e041bb548684dba0ef2592f5f646197ea27e72659f601316d384d4067",
           "image": "ghcr.io/narx-space-prod/commerce-catalogue",
           "repository": "Narx-Space-Prod/commerce-catalogue",
-          "runId": 42336355972
+          "runId": 42345354984
         },
         "frontend": {
-          "commit": "510b83d254299b85006427c49425f9d7973ffa9c",
+          "commit": "19e7f8747abec34e0aef80b9acaf58b831fedf9c",
           "component": "frontend",
-          "digest": "sha256:d9d5f85e45a13ae5dbe573373f5b1a4c2d56f60e4625a212bea7eda216a6780b",
+          "digest": "sha256:5f9eef1d8a7cad3ce57843454f6acc3011f44aafb310f8a9a40f29ea2f97ad05",
           "image": "ghcr.io/narx-space-prod/commerce-frontend",
           "repository": "Narx-Space-Prod/commerce-frontend",
-          "runId": 42336332805
+          "runId": 42345326681
         },
         "orders": {
-          "commit": "c9bc372d6990aed64b28b1605898d6e7cb31e888",
+          "commit": "b42a29ec503e63e096c641013cde287753262451",
           "component": "orders",
-          "digest": "sha256:271319d7b02650e2533e3a0fd6e35dd2a7261611b88aca524c9554eeae4f888d",
+          "digest": "sha256:eeccffab754a8075a532150eb8e76e488db7961fb4f64a82983b13d21c42c38a",
           "image": "ghcr.io/narx-space-prod/commerce-orders",
           "repository": "Narx-Space-Prod/commerce-orders",
-          "runId": 42336379939
+          "runId": 42345437549
         }
       },
       "environment": "production",
-      "gitopsCommit": "673f388175587ba0110f74989e721a253cc761c4"
+      "gitopsCommit": "a523ec72624b7dfda2e2d84e4cba61352dae02d4"
     },
     "ready": true
   },
@@ -137,7 +137,7 @@
       "repository": "ghcr.io/narx-space-prod/commerce-orders"
     },
     "podAnnotations": {
-      "delivery.narx.space/release": "2aab2a30dc7a90c2536114c4b83e3f245bdf8b4437648698f49b27194ca18cee",
+      "delivery.narx.space/release": "bbab63b441dc7c437d7f5771ffe9c336d2aae0c087974f490aa2e2b6348d5d3c",
       "delivery.narx.space/source-commit": "b42a29ec503e63e096c641013cde287753262451"
     }
   }
