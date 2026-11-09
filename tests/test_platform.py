@@ -319,13 +319,15 @@ class PlatformPolicy(unittest.TestCase):
         self.assertNotIn('status',workflow['on'])
         self.assertNotIn('concurrency',workflow)
         recovery=yaml.load((ROOT/'.github/workflows/recovery.yml').read_text(),Loader=yaml.BaseLoader)
-        self.assertIn('status',recovery['on'])
+        self.assertNotIn('status',recovery['on'])
+        self.assertEqual(recovery['on']['repository_dispatch']['types'],['recovery-requested'])
         self.assertNotIn('concurrency',recovery)
         self.assertNotIn('concurrency',recovery['jobs']['recovery'])
         guard=recovery['jobs']['recovery']['if']
-        for clause in ('github.event.sender.login == vars.NARX_DEPLOYMENT_BOT_LOGIN',
-                       'github.event.context', "github.event.state == 'failure'", 'refs/heads/main',
-                       'narx/deploy-qa', 'narx/deploy-production'):
+        for clause in ("github.event.sender.login == 'narx-local-commerce-release[bot]'",
+                       'github.event.sender.id == 352511280', 'github.event.client_payload.environment',
+                       "github.event_name == 'repository_dispatch'", 'refs/heads/main',
+                       'qa', 'production'):
             self.assertIn(clause,guard)
         config=yaml.safe_load((ROOT/'applications/notifications.yaml').read_text())['data']
         for event in ('healthy','failed'):
