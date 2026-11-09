@@ -8,6 +8,7 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+import yaml
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
@@ -159,12 +160,18 @@ class DeliveryPolicy(unittest.TestCase):
                 d.run('git','add','.');d.run('git','commit','-m','runtime change')
                 changed=d.run('git','rev-parse','HEAD')
                 self.assertEqual(d.deployment_revisions(changed,'qa'),[changed])
+                yaml_app=app.with_suffix('.yaml')
+                yaml_app.write_text(yaml.safe_dump_all(project['items'],sort_keys=False))
+                app.unlink();app=yaml_app
+                d.run('git','add','.');d.run('git','commit','-m','convert JSON to YAML documents')
+                formatting=d.run('git','rev-parse','HEAD')
+                self.assertEqual(d.deployment_revisions(formatting,'qa'),[formatting,changed])
                 project['items'][0]['spec']['description']='standalone description'
-                app.write_text(json.dumps(project));d.run('git','add','.');d.run('git','commit','-m','description only')
+                app.write_text(yaml.safe_dump_all(project['items'],sort_keys=False));d.run('git','add','.');d.run('git','commit','-m','description only')
                 metadata=d.run('git','rev-parse','HEAD')
-                self.assertEqual(d.deployment_revisions(metadata,'qa'),[metadata,changed])
+                self.assertEqual(d.deployment_revisions(metadata,'qa'),[metadata,formatting,changed])
                 project['items'][0]['spec']['sourceRepos']=['different']
-                app.write_text(json.dumps(project));d.run('git','add','.');d.run('git','commit','-m','real policy change')
+                app.write_text(yaml.safe_dump_all(project['items'],sort_keys=False));d.run('git','add','.');d.run('git','commit','-m','real policy change')
                 policy=d.run('git','rev-parse','HEAD')
                 self.assertEqual(d.deployment_revisions(policy,'qa'),[policy])
             finally:
