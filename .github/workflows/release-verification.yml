@@ -91,6 +91,9 @@ jobs:
         if: steps.candidate.outputs.changed == 'true' && vars.DELIVERY_ENABLED == 'true'
         with:
           cosign-release: v3.1.4
+      - name: Install the pinned manifest parser
+        if: steps.candidate.outputs.changed == 'true'
+        run: python3 -m pip install --disable-pip-version-check PyYAML==6.0.3
       - name: Apply trusted policy to candidate JSON
         if: steps.candidate.outputs.changed == 'true'
         env:

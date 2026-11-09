@@ -1,0 +1,70 @@
+# Bootstrap merges these project-owned keys; preserve other integrations and private Secret values.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argocd-notifications-cm
+  namespace: argocd
+data:
+  template.narx-pending: |
+    github:
+      repoURLPath: "{{.app.spec.source.repoURL}}"
+      revisionPath: "{{.app.status.operationState.operation.sync.revision}}"
+      status:
+        state: pending
+        label: 'narx/deploy-{{index .app.metadata.labels "delivery.narx.space/environment"}}'
+  trigger.narx-pending: |
+    - description: Commerce pending deployment evidence
+      oncePer: "app.status.operationState.startedAt + ':' + (app.status.health.lastTransitionTime ?? '')"
+      send: [narx-pending]
+      when: app.status.operationState != nil && app.status.operationState.phase == 'Running' && app.status.operationState.operation.sync.revision != ''
+  template.narx-healthy: |
+    github:
+      repoURLPath: "{{.app.spec.source.repoURL}}"
+      revisionPath: "{{.app.status.operationState.syncResult.revision}}"
+      status:
+        state: success
+        label: 'narx/deploy-{{index .app.metadata.labels "delivery.narx.space/environment"}}'
+  trigger.narx-healthy: |
+    - description: Commerce healthy deployment evidence
+      oncePer: "app.status.operationState.startedAt + ':' + (app.status.health.lastTransitionTime ?? '')"
+      send: [narx-healthy]
+      when: "app.status.operationState != nil && app.status.operationState.phase == 'Succeeded' && app.status.sync.status == 'Synced' && app.status.health.status == 'Healthy' && app.status.operationState.syncResult != nil && app.status.operationState.syncResult.revision != '' && app.status.operationState.syncResult.resources != nil && any(app.status.operationState.syncResult.resources, { #.kind == 'Job' && #.hookType == 'PostSync' && #.hookPhase == 'Succeeded' && #.name startsWith 'commerce-smoke-' && #.images != nil && len(#.images) > 0 })"
+  template.narx-failed: |
+    github:
+      repoURLPath: "{{.app.spec.source.repoURL}}"
+      revisionPath: "{{if and .app.status.operationState.syncResult .app.status.operationState.syncResult.revision}}{{.app.status.operationState.syncResult.revision}}{{else}}{{.app.status.operationState.operation.sync.revision}}{{end}}"
+      status:
+        state: failure
+        label: 'narx/deploy-{{index .app.metadata.labels "delivery.narx.space/environment"}}'
+  trigger.narx-failed: |
+    - description: Commerce failed deployment evidence
+      oncePer: "app.status.operationState.startedAt + ':' + (app.status.health.lastTransitionTime ?? '')"
+      send: [narx-failed]
+      when: app.status.operationState != nil && ((app.status.operationState.syncResult != nil && app.status.operationState.syncResult.revision != '') || app.status.operationState.operation.sync.revision != '') && (app.status.operationState.phase in ['Error', 'Failed'] || app.status.health.status == 'Degraded')
+  service.webhook.slack: |
+    url: $narx-slack-webhook
+    headers:
+      - name: Content-Type
+        value: application/json
+  template.narx-slack-deployed: |
+    webhook:
+      slack:
+        method: POST
+        body: |
+          {"text":"[DEPLOYED] Narx {{index .app.metadata.labels "delivery.narx.space/environment"}} | {{.app.metadata.name}} | Git {{.app.status.operationState.syncResult.revision}}"}
+  trigger.narx-slack-deployed: |
+    - description: Narx deployed delivery summary
+      oncePer: app.status.operationState.startedAt
+      send: [narx-slack-deployed]
+      when: "app.status.operationState != nil && app.status.operationState.phase == 'Succeeded' && app.status.sync.status == 'Synced' && app.status.health.status == 'Healthy' && app.status.operationState.syncResult != nil && app.status.operationState.syncResult.revision != '' && app.status.operationState.syncResult.resources != nil && any(app.status.operationState.syncResult.resources, { #.kind == 'Job' && #.hookType == 'PostSync' && #.hookPhase == 'Succeeded' && #.name startsWith 'commerce-smoke-' && #.images != nil && len(#.images) > 0 })"
+  template.narx-slack-failed: |
+    webhook:
+      slack:
+        method: POST
+        body: |
+          {"text":"[SYNC FAILED] Narx {{index .app.metadata.labels "delivery.narx.space/environment"}} | {{.app.metadata.name}} | Git {{if and .app.status.operationState.syncResult .app.status.operationState.syncResult.revision}}{{.app.status.operationState.syncResult.revision}}{{else}}{{.app.status.operationState.operation.sync.revision}}{{end}}"}
+  trigger.narx-slack-failed: |
+    - description: Narx failed delivery summary
+      oncePer: app.status.operationState.startedAt
+      send: [narx-slack-failed]
+      when: app.status.operationState != nil && app.status.operationState.phase in ['Error', 'Failed']

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Immutable release bundles, verified intake, reviewed promotion and Git rollback.
 
-Only Python's standard library. Never execute files from a candidate PR in the
+PyYAML reads reviewed Argo manifests. Never execute files from a candidate PR in the
 privileged verifier. All external commands use argument arrays, never shell=True.
 """
 import argparse
@@ -13,6 +13,8 @@ from pathlib import Path
 import re
 import subprocess
 import time
+
+import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 COMPONENTS = {'frontend': 'commerce-frontend', 'catalogue': 'commerce-catalogue',
@@ -170,27 +172,41 @@ def verify_image(fact):
     raise ValueError('image lacks trusted, source-bound provenance and SBOM: ' + reference)
 
 
+def application_resources(commit, paths):
+    """Read trusted history across the JSON-to-multi-document-YAML rename."""
+    available = run('git', 'ls-tree', '--name-only', commit, '--', *paths).splitlines()
+    require(len(available) == 1 and available[0] in paths, 'historical Argo configuration is missing or ambiguous')
+    content = run('git', 'show', commit + ':' + available[0])
+    resources = []
+    for document in yaml.safe_load_all(content):
+        if document is None:
+            continue
+        require(isinstance(document, dict), 'invalid Argo manifest')
+        resources.extend(document['items'] if document.get('kind') == 'List' else [document])
+    return resources
+
+
 def deployment_revisions(revision, environment):
     require(re.fullmatch('[a-f0-9]{40}', revision), 'invalid GitOps revision')
     require(environment in ENVIRONMENTS, 'unexpected deployment environment')
     # Ignore commits for other environments, but never reuse evidence across a
     # chart, runtime, release or Argo application configuration change.
-    application = 'applications/local/commerce.json'
-    paths = ('charts', 'environments/' + environment, application)
+    applications = ('applications/local/commerce.yaml', 'applications/local/commerce.json')
+    paths = ('charts', 'environments/' + environment, *applications)
     search = revision
     for _ in range(50):
         anchor = run('git', 'log', '--first-parent', '-1', '--format=%H', search, '--', *paths)
         require(re.fullmatch('[a-f0-9]{40}', anchor), 'deployment configuration history is missing')
         changed = run('git', 'diff-tree', '--no-commit-id', '--name-only', '-r', anchor, '--', *paths).splitlines()
-        if changed != [application]:
+        if not changed or not set(changed) <= set(applications):
             break
         try:
             parent = run('git', 'rev-parse', anchor + '^')
-            configs = [json.loads(run('git', 'show', commit + ':' + application)) for commit in (parent, anchor)]
+            configs = [application_resources(commit, applications) for commit in (parent, anchor)]
         except subprocess.CalledProcessError:
             break  # Missing historical configuration cannot authorize older evidence.
         for config in configs:
-            for item in config.get('items', []):
+            for item in config:
                 if item.get('kind') == 'AppProject':
                     item.get('spec', {}).pop('description', None)
         if configs[0] != configs[1]:
