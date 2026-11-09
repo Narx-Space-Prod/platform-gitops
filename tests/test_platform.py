@@ -81,7 +81,7 @@ class PlatformPolicy(unittest.TestCase):
             self.assertEqual([name for name in values[0] if values[0][name]!=values[1][name]],['commerce-frontend'])
 
     def test_application_set_is_bounded_to_dedicated_local_cluster(self):
-        resources=json.loads((ROOT/'applications/local/commerce.json').read_text())['items']
+        resources=list(yaml.safe_load_all((ROOT/'applications/local/commerce.yaml').read_text()))
         self.assertEqual([r['kind'] for r in resources],['AppProject','ApplicationSet'])
         spec=resources[1]['spec']
         self.assertEqual(spec['generators'],[{'list':{'elements':[{'environment':'dev'},{'environment':'qa'},{'environment':'production'}]}}])
@@ -188,7 +188,7 @@ class PlatformPolicy(unittest.TestCase):
             self.assertEqual(hpa['behavior']['scaleDown']['stabilizationWindowSeconds'],300)
             self.assertEqual(hpa['behavior']['scaleUp']['policies'],[{'type':'Pods','value':1,'periodSeconds':60}])
             self.assertNotIn('replicas',self.objects(env,'Rollout')[0]['spec'])
-        items=json.loads((ROOT/'applications/local/commerce.json').read_text())['items']
+        items=list(yaml.safe_load_all((ROOT/'applications/local/commerce.yaml').read_text()))
         ignores=items[1]['spec']['template']['spec']['ignoreDifferences']
         replica_rules=[i for i in ignores if '/spec/replicas' in i.get('jsonPointers',[])]
         self.assertEqual(replica_rules,[{'group':'argoproj.io','kind':'Rollout','name':'commerce-frontend','jsonPointers':['/spec/replicas']}])
@@ -286,7 +286,7 @@ class PlatformPolicy(unittest.TestCase):
         self.assertIn('narx-argocd',{j['job_name'] for j in jobs})
 
     def test_slack_summaries_render_valid_payloads_without_exposing_credentials(self):
-        config=json.loads((ROOT/'applications/notifications.json').read_text())['data']
+        config=yaml.safe_load((ROOT/'applications/notifications.yaml').read_text())['data']
         self.assertIn('url: $narx-slack-webhook',config['service.webhook.slack'])
         for event in ['deployed','failed']:
             trigger=yaml.safe_load(config['trigger.narx-slack-'+event])[0]
@@ -310,7 +310,7 @@ class PlatformPolicy(unittest.TestCase):
                 self.assertNotIn('webhook',message)
 
     def test_deployment_events_use_trusted_observer_and_named_slack_webhook(self):
-        appset=json.loads((ROOT/'applications/local/commerce.json').read_text())['items'][1]
+        appset=list(yaml.safe_load_all((ROOT/'applications/local/commerce.yaml').read_text()))[1]
         annotations=appset['spec']['template']['metadata']['annotations']
         for event in ('deployed','failed'):
             self.assertEqual(annotations['notifications.argoproj.io/subscribe.narx-slack-'+event+'.slack'],'')
@@ -327,7 +327,7 @@ class PlatformPolicy(unittest.TestCase):
                        'github.event.context', "github.event.state == 'failure'", 'refs/heads/main',
                        'narx/deploy-qa', 'narx/deploy-production'):
             self.assertIn(clause,guard)
-        config=json.loads((ROOT/'applications/notifications.json').read_text())['data']
+        config=yaml.safe_load((ROOT/'applications/notifications.yaml').read_text())['data']
         for event in ('healthy','failed'):
             template=yaml.safe_load(config['template.narx-'+event])['github']
             self.assertIn('.app.status.operationState.syncResult.revision',template['revisionPath'])

@@ -52,6 +52,8 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
+      - name: Install the pinned manifest parser
+        run: python3 -m pip install --disable-pip-version-check PyYAML==6.0.3
       - name: Authenticate read-only GHCR verification
         env:
           REGISTRY_TOKEN: ${{ github.token }}
