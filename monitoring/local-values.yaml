@@ -171,7 +171,7 @@ integration:
   - job_name: narx-argocd
     static_configs:
     - targets:
-      - mega-local-control-plane:32082
+      - argocd-metrics.argocd.svc:8082
       labels:
         project: narx-commerce
         environment: platform
@@ -200,9 +200,8 @@ integration:
         project: narx-commerce
         severity: warning
       annotations:
-        summary: Narx {{ $labels.environment }} {{ $labels.service }} metrics endpoint
-          is down
-        runbook_url: https://github.com/Narx-Space-Prod/platform-infrastructure/blob/main/DOC.md#local-monitoring-and-progressive-delivery
+        summary: Narx {{ $labels.environment }} {{ $labels.service }} metrics endpoint is down
+        runbook_url: https://github.com/Narx-Space-Prod/platform-infrastructure/blob/main/MONITORING.md#13-troubleshooting-by-layer
     - alert: NarxServiceUnready
       expr: probe_success{project="narx-commerce"} == 0
       for: 2m
@@ -210,32 +209,28 @@ integration:
         project: narx-commerce
         severity: critical
       annotations:
-        summary: Narx {{ $labels.environment }} {{ $labels.service }} readiness is
-          failing
-        runbook_url: https://github.com/Narx-Space-Prod/platform-infrastructure/blob/main/DOC.md#local-monitoring-and-progressive-delivery
+        summary: Narx {{ $labels.environment }} {{ $labels.service }} readiness is failing
+        runbook_url: https://github.com/Narx-Space-Prod/platform-infrastructure/blob/main/MONITORING.md#13-troubleshooting-by-layer
     - alert: NarxPodRestarting
-      expr: increase(kube_pod_container_status_restarts_total{project="narx-commerce"}[15m])
-        > 3
+      expr: increase(kube_pod_container_status_restarts_total{project="narx-commerce"}[15m]) > 3
       for: 3m
       labels:
         project: narx-commerce
         severity: warning
       annotations:
         summary: Narx pod {{ $labels.pod }} restarted repeatedly
-        runbook_url: https://github.com/Narx-Space-Prod/platform-infrastructure/blob/main/DOC.md#local-monitoring-and-progressive-delivery
+        runbook_url: https://github.com/Narx-Space-Prod/platform-infrastructure/blob/main/MONITORING.md#13-troubleshooting-by-layer
     - alert: NarxPodStuck
-      expr: kube_pod_status_phase{project="narx-commerce",phase=~"Pending|Unknown"}
-        == 1
+      expr: kube_pod_status_phase{project="narx-commerce",phase=~"Pending|Unknown"} == 1
       for: 5m
       labels:
         project: narx-commerce
         severity: warning
       annotations:
         summary: Narx pod {{ $labels.pod }} is stuck
-        runbook_url: https://github.com/Narx-Space-Prod/platform-infrastructure/blob/main/DOC.md#local-monitoring-and-progressive-delivery
+        runbook_url: https://github.com/Narx-Space-Prod/platform-infrastructure/blob/main/MONITORING.md#13-troubleshooting-by-layer
     - alert: NarxPodUnready
-      expr: (kube_pod_status_ready{project="narx-commerce",condition="true"} == 0)
-        and on(namespace,pod) (kube_pod_status_phase{project="narx-commerce",phase="Running"}
+      expr: (kube_pod_status_ready{project="narx-commerce",condition="true"} == 0) and on(namespace,pod) (kube_pod_status_phase{project="narx-commerce",phase="Running"}
         == 1)
       for: 5m
       labels:
@@ -243,7 +238,7 @@ integration:
         severity: warning
       annotations:
         summary: Narx pod {{ $labels.pod }} is running but unready
-        runbook_url: https://github.com/Narx-Space-Prod/platform-infrastructure/blob/main/DOC.md#local-monitoring-and-progressive-delivery
+        runbook_url: https://github.com/Narx-Space-Prod/platform-infrastructure/blob/main/MONITORING.md#13-troubleshooting-by-layer
     - alert: NarxDeploymentUnavailable
       expr: kube_deployment_spec_replicas{project="narx-commerce"} > kube_deployment_status_replicas_available{project="narx-commerce"}
       for: 5m
@@ -252,29 +247,27 @@ integration:
         severity: warning
       annotations:
         summary: Narx deployment {{ $labels.deployment }} has unavailable replicas
-        runbook_url: https://github.com/Narx-Space-Prod/platform-infrastructure/blob/main/DOC.md#local-monitoring-and-progressive-delivery
+        runbook_url: https://github.com/Narx-Space-Prod/platform-infrastructure/blob/main/MONITORING.md#13-troubleshooting-by-layer
     - alert: NarxPVCUnbound
-      expr: kube_persistentvolumeclaim_status_phase{project="narx-commerce",phase="Pending"}
-        == 1
+      expr: kube_persistentvolumeclaim_status_phase{project="narx-commerce",phase="Pending"} == 1
       for: 5m
       labels:
         project: narx-commerce
         severity: warning
       annotations:
         summary: Narx PVC {{ $labels.persistentvolumeclaim }} is unbound
-        runbook_url: https://github.com/Narx-Space-Prod/platform-infrastructure/blob/main/DOC.md#local-monitoring-and-progressive-delivery
+        runbook_url: https://github.com/Narx-Space-Prod/platform-infrastructure/blob/main/MONITORING.md#13-troubleshooting-by-layer
     - alert: NarxHTTPErrorRate
       expr: (sum by(environment,service)(rate(boutique_http_requests_total{project="narx-commerce",status=~"5.."}[5m]))
-        / sum by(environment,service)(rate(boutique_http_requests_total{project="narx-commerce"}[5m]))
-        > 0.05) and (sum by(environment,service)(rate(boutique_http_requests_total{project="narx-commerce"}[5m]))
-        > 0.1)
+        / sum by(environment,service)(rate(boutique_http_requests_total{project="narx-commerce"}[5m])) > 0.05) and
+        (sum by(environment,service)(rate(boutique_http_requests_total{project="narx-commerce"}[5m])) > 0.1)
       for: 5m
       labels:
         project: narx-commerce
         severity: critical
       annotations:
         summary: Narx {{ $labels.service }} exceeds 5% HTTP errors
-        runbook_url: https://github.com/Narx-Space-Prod/platform-infrastructure/blob/main/DOC.md#local-monitoring-and-progressive-delivery
+        runbook_url: https://github.com/Narx-Space-Prod/platform-infrastructure/blob/main/MONITORING.md#13-troubleshooting-by-layer
     - alert: NarxOrdersHTTPErrorRate
       expr: (sum by(environment,service)(rate(http_server_requests_seconds_count{project="narx-commerce",service="orders",status=~"5..",uri!~"/health/.*|/actuator/.*"}[5m]))
         / sum by(environment,service)(rate(http_server_requests_seconds_count{project="narx-commerce",service="orders",uri!~"/health/.*|/actuator/.*"}[5m]))
@@ -286,10 +279,9 @@ integration:
         severity: critical
       annotations:
         summary: Narx Orders API exceeds 5% HTTP errors
-        runbook_url: https://github.com/Narx-Space-Prod/platform-infrastructure/blob/main/DOC.md#local-monitoring-and-progressive-delivery
+        runbook_url: https://github.com/Narx-Space-Prod/platform-infrastructure/blob/main/MONITORING.md#13-troubleshooting-by-layer
     - alert: NarxOutboxStalled
-      expr: commerce_outbox_oldest_seconds{project="narx-commerce",role="publisher"}
-        > 120
+      expr: commerce_outbox_oldest_seconds{project="narx-commerce",role="publisher"} > 120
       for: 2m
       labels:
         project: narx-commerce
@@ -297,7 +289,7 @@ integration:
         service: publisher
       annotations:
         summary: Narx paid order events have waited over two minutes
-        runbook_url: https://github.com/Narx-Space-Prod/platform-infrastructure/blob/main/DOC.md#local-monitoring-and-progressive-delivery
+        runbook_url: https://github.com/Narx-Space-Prod/platform-infrastructure/blob/main/MONITORING.md#13-troubleshooting-by-layer
     - alert: NarxQueueProcessingFailures
       expr: sum by(environment)(increase(commerce_queue_consume_total{project="narx-commerce",result="failed"}[10m]))
         > 3
@@ -308,7 +300,7 @@ integration:
         service: worker
       annotations:
         summary: Narx worker repeatedly failed to process queue messages
-        runbook_url: https://github.com/Narx-Space-Prod/platform-infrastructure/blob/main/DOC.md#local-monitoring-and-progressive-delivery
+        runbook_url: https://github.com/Narx-Space-Prod/platform-infrastructure/blob/main/MONITORING.md#13-troubleshooting-by-layer
     - alert: NarxQueuePollingFailures
       expr: sum by(environment)(increase(commerce_queue_poll_total{project="narx-commerce",result="failed"}[5m]))
         > 3
@@ -319,7 +311,7 @@ integration:
         service: worker
       annotations:
         summary: Narx worker cannot poll the order queue
-        runbook_url: https://github.com/Narx-Space-Prod/platform-infrastructure/blob/main/DOC.md#local-monitoring-and-progressive-delivery
+        runbook_url: https://github.com/Narx-Space-Prod/platform-infrastructure/blob/main/MONITORING.md#13-troubleshooting-by-layer
     - alert: NarxRolloutDegraded
       expr: rollout_info{project="narx-commerce",phase="Degraded"} == 1
       for: 1m
@@ -328,21 +320,18 @@ integration:
         severity: critical
         service: frontend
       annotations:
-        summary: Narx frontend rollout is degraded; inspect analysis and the rollback
-          PR
-        runbook_url: https://github.com/Narx-Space-Prod/platform-infrastructure/blob/main/DOC.md#local-monitoring-and-progressive-delivery
+        summary: Narx frontend rollout is degraded; inspect analysis and the rollback PR
+        runbook_url: https://github.com/Narx-Space-Prod/platform-infrastructure/blob/main/MONITORING.md#13-troubleshooting-by-layer
     - alert: NarxArgoApplicationDegraded
-      expr: argocd_app_info{project="narx-commerce",health_status=~"Degraded|Missing|Unknown"}
-        == 1
+      expr: argocd_app_info{project="narx-commerce",health_status=~"Degraded|Missing|Unknown"} == 1
       for: 3m
       labels:
         project: narx-commerce
         severity: critical
         service: delivery
       annotations:
-        summary: Narx {{ $labels.name }} is degraded; inspect the Argo operation and
-          rollout analysis
-        runbook_url: https://github.com/Narx-Space-Prod/platform-infrastructure/blob/main/DOC.md#local-monitoring-and-progressive-delivery
+        summary: Narx {{ $labels.name }} is degraded; inspect the Argo operation and rollout analysis
+        runbook_url: https://github.com/Narx-Space-Prod/platform-infrastructure/blob/main/MONITORING.md#13-troubleshooting-by-layer
     - alert: NarxArgoOutOfSync
       expr: argocd_app_info{project="narx-commerce",sync_status="OutOfSync"} == 1
       for: 10m
@@ -352,11 +341,11 @@ integration:
         service: delivery
       annotations:
         summary: Narx {{ $labels.name }} has not reconciled approved Git state
-        runbook_url: https://github.com/Narx-Space-Prod/platform-infrastructure/blob/main/DOC.md#local-monitoring-and-progressive-delivery
+        runbook_url: https://github.com/Narx-Space-Prod/platform-infrastructure/blob/main/MONITORING.md#13-troubleshooting-by-layer
   dashboards:
     narx-commerce:
       uid: narx-commerce
-      title: "Narx Commerce \u2014 Delivery and Runtime"
+      title: Narx Commerce — Delivery and Runtime
       schemaVersion: 39
       version: 1
       tags:
@@ -431,7 +420,7 @@ integration:
         targets:
         - refId: A
           expr: sum by(service)(rate(boutique_http_requests_total{project="narx-commerce",environment=~"$environment"}[5m]))
-          legendFormat: '{{service}} {{pod}}'
+          legendFormat: '{{service}}'
         fieldConfig:
           defaults:
             unit: reqps
@@ -450,7 +439,7 @@ integration:
         targets:
         - refId: A
           expr: sum by(service)(rate(http_server_requests_seconds_count{project="narx-commerce",environment=~"$environment",role="api",uri!~"/health/.*|/actuator/.*"}[5m]))
-          legendFormat: '{{service}} {{pod}}'
+          legendFormat: '{{service}}'
         fieldConfig:
           defaults:
             unit: reqps
@@ -488,7 +477,7 @@ integration:
         targets:
         - refId: A
           expr: sum by(service)(rate(boutique_http_requests_total{project="narx-commerce",environment=~"$environment",status=~"5.."}[5m]))
-          legendFormat: '{{service}} {{pod}}'
+          legendFormat: '{{service}}'
         fieldConfig:
           defaults:
             unit: reqps
@@ -545,7 +534,7 @@ integration:
         targets:
         - refId: A
           expr: sum by(result)(rate(commerce_queue_consume_total{project="narx-commerce",environment=~"$environment"}[5m]))
-          legendFormat: '{{service}} {{pod}}'
+          legendFormat: '{{result}}'
         fieldConfig:
           defaults:
             unit: ops
@@ -616,7 +605,7 @@ integration:
         gridPos:
           x: 0
           y: 48
-          w: 12
+          w: 24
           h: 8
         datasource:
           type: prometheus
@@ -629,33 +618,3 @@ integration:
           defaults:
             unit: short
           overrides: []
-      - id: 14
-        title: Application logs
-        type: logs
-        gridPos:
-          x: 12
-          y: 48
-          w: 12
-          h: 8
-        datasource:
-          type: loki
-          uid: loki
-        targets:
-        - refId: A
-          expr: '{project="narx-commerce",environment=~"$environment"}'
-          legendFormat: '{{service}} {{pod}}'
-        fieldConfig:
-          defaults:
-            unit: short
-          overrides: []
-  egressRules:
-  - to:
-    - namespaceSelector:
-        matchLabels:
-          kubernetes.io/metadata.name: argocd
-      podSelector:
-        matchLabels:
-          app.kubernetes.io/name: argocd-application-controller
-    ports:
-    - protocol: TCP
-      port: 8082
