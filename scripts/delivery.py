@@ -521,10 +521,37 @@ def wait_for_approval(number, expected, timeout=3600):
     raise ValueError('Production PR approval timed out: ' + url)
 
 
+def current_recovery_event(environment, revision):
+    """Recheck dispatch identity and latest observer evidence under writer lock."""
+    event = read(os.environ['GITHUB_EVENT_PATH'])
+    sender = event.get('sender', {})
+    require(event.get('action') == 'recovery-requested'
+            and sender.get('login') == 'narx-local-commerce-release[bot]'
+            and sender.get('id') == 352511280, 'untrusted recovery dispatcher')
+    payload = event.get('client_payload', {})
+    require(set(payload) == {'environment', 'revision', 'statusId'}
+            and payload.get('environment') == environment
+            and isinstance(payload.get('revision'), str)
+            and re.fullmatch('[a-f0-9]{40}', payload['revision'])
+            and type(payload.get('statusId')) is int and payload['statusId'] > 0,
+            'invalid recovery event')
+    if payload['revision'] not in deployment_revisions(revision, environment):
+        return False
+    statuses = api(f"repos/Narx-Space-Prod/platform-gitops/commits/{payload['revision']}/statuses?per_page=100")
+    latest = next((s for s in statuses if s.get('context') == 'narx/deploy-' + environment), None)
+    return bool(latest and latest.get('id') == payload['statusId']
+                and latest.get('state') == 'failure'
+                and latest.get('creator', {}).get('login') == os.environ.get('NARX_DEPLOYMENT_BOT_LOGIN')
+                and latest.get('creator', {}).get('id') == 352518969)
+
+
 def recover_stage(environment, manual=False):
     require(environment in (ENVIRONMENTS if manual else ('qa', 'production')), 'automatic recovery is limited to QA/production')
     run('git', 'fetch', 'origin', 'main')
     revision = run('git', 'rev-parse', 'origin/main')
+    if os.environ.get('GITHUB_EVENT_NAME') == 'repository_dispatch' and not current_recovery_event(environment, revision):
+        print('Recovery event is stale; no rollback proposed.')
+        return
     current = json.loads(run('git', 'show', revision + f':environments/{environment}/release.json'))
     if manual:
         require(validate(current), 'cannot roll back an empty release')

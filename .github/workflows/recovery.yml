@@ -1,7 +1,8 @@
 name: 03 - Recovery
 
 on:
-  status:
+  repository_dispatch:
+    types: [recovery-requested]
   pull_request:
     types: [closed]
     branches: [main]
@@ -23,9 +24,10 @@ jobs:
       github.repository == 'Narx-Space-Prod/platform-gitops' &&
       vars.DELIVERY_ENABLED == 'true' && github.ref == 'refs/heads/main' &&
       (github.event_name == 'workflow_dispatch' ||
-       (github.event.sender.login == vars.NARX_DEPLOYMENT_BOT_LOGIN &&
-        contains(fromJSON('["narx/deploy-qa","narx/deploy-production"]'), github.event.context) &&
-        github.event.state == 'failure'))
+       (github.event_name == 'repository_dispatch' &&
+        github.event.sender.login == 'narx-local-commerce-release[bot]' &&
+        github.event.sender.id == 352511280 &&
+        contains(fromJSON('["qa","production"]'), github.event.client_payload.environment)))
     permissions:
       contents: read
       packages: read
@@ -33,7 +35,7 @@ jobs:
     secrets:
       NARX_RELEASE_APP_PRIVATE_KEY: ${{ secrets.NARX_RELEASE_APP_PRIVATE_KEY }}
     with:
-      environment: ${{ inputs.environment || (github.event.context == 'narx/deploy-qa' && 'qa' || 'production') }}
+      environment: ${{ inputs.environment || github.event.client_payload.environment }}
       operation: ${{ github.event_name == 'workflow_dispatch' && 'rollback' || 'recover' }}
   production-observation:
     name: Verify manually approved Production release
